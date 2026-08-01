@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher-icon background: the light neutral behind the SideHome mark, matching the rendered brand
+     icon (SideSuite/brand-templates/AI/sidehome-icon.ai, exported to assets/icon.png). The foreground
+     PNG carries the same light-grey ground full-bleed, so this flat colour only shows at the mask edge
+     under parallax — set to the ground's vertical midpoint. -->
+<resources>
+    <color name="ic_launcher_background">#DBDBDB</color>
+</resources>

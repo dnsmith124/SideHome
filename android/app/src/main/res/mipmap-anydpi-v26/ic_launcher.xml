@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SideHome launcher icon (SID-74): the rendered brand mark as the adaptive foreground, over the
+     light brand ground. minSdk 31, so the adaptive icon is always used (no raster mipmap fallback). -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>

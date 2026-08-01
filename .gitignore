@@ -1,0 +1,38 @@
+# Gradle / Android build output
+.gradle/
+build/
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/captures/
+android/local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Keystores / secrets
+*.jks
+*.keystore
+!debug.keystore
+android/keystore.properties
+
+# Internal design docs — the candid grilling record + whole-phone roadmap. Kept local, not shipped
+# in the public repo. Removed from public history at publish time via a filtered clone.
+/SPEC.md
+/DECISIONS.md
+
+# Agent-local state: linked worktrees (full repo copies) and session scratch. Never publish.
+.claude/
