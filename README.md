@@ -202,7 +202,7 @@ The pack also carries [SideType](https://github.com/side-suite/SideType) and
    [For developers](#for-developers)).
 2. Copy it to the phone and open it, or install over USB:
    ```
-   adb install -r SideHome-v1.1.apk
+   adb install -r SideHome-v1.2.apk
    ```
 
 For update notifications on this path, use
@@ -294,11 +294,13 @@ never "granted but promising not to look."
 
 ## Status
 
-**v1.1.** Running on the SP-01, with 540+ unit tests over the pure logic (colour, gestures, key-nav,
-drop rules, weather). New this release: the **Photo theme**, the consent-gated **wallpaper sync**, a
-much richer **weather page** (wind, feels-like, sun, next-hour rain, rain odds, tap-a-day) with an
-off-switch for the whole page, the **"Library opens in"** choice, and the option to hide the
-direct-index numbers. The left-hand **Past** pane ships disabled — Home is the left end — and the
+**v1.2.** Running on the SP-01, with 540+ unit tests over the pure logic (colour, gestures, key-nav,
+drop rules, weather). This release fixes the one bug everyone saw: the big home clock could lag the
+status bar by minutes after the phone woke from sleep — it now resyncs the instant the screen comes
+on. Still here from v1.1: the **Photo theme**, the consent-gated **wallpaper sync**, a much richer
+**weather page** (wind, feels-like, sun, next-hour rain, rain odds, tap-a-day) with an off-switch
+for the whole page, the **"Library opens in"** choice, and the option to hide the direct-index
+numbers. The left-hand **Past** pane ships disabled — Home is the left end — and the
 **Future** pane is weather-only for now; journal, reminders, calendar and spotlight search are parked
 for a later release.
 

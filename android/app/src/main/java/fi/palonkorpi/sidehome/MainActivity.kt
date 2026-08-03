@@ -98,6 +98,33 @@ class MainActivity : ComponentActivity() {
     // re-enumerates once to catch up. See the argument in onStart().
     private var packagesStale = false
 
+    // Bumped when the wall clock may have jumped past the UI's minute timer, so the home clock
+    // re-reads now() instead of waiting its timer out. The timer alone is not enough: coroutine
+    // delay() counts uptime, which pauses while the CPU deep-sleeps, so a screen-off doze leaves the
+    // pending tick frozen and the clock stale by the whole doze — minutes of visible lag on wake,
+    // self-correcting only when the frozen tick finally fires (the community 1.1 desync report).
+    private val timeResync = mutableIntStateOf(0)
+
+    // Every action this receiver is registered for means "the wall clock just jumped past the UI's
+    // timer": SCREEN_ON is the wake edge itself (the stale frame the report describes is the first
+    // one after it), and TIME_CHANGED / TIMEZONE_CHANGED are the user moving the clock under us. No
+    // decision table to consult — any of them bumps.
+    //
+    // Deliberately NOT TIME_TICK, though it looks like the obvious fourth. The timer only diverges
+    // from the wall clock across deep sleep, and SCREEN_ON covers every return from that; while
+    // awake the UI's own minute tick is already honest. Every bump costs the same — a full
+    // recomposition downstream of `clock`, and in a dawn/dusk delta window a wallpaper render
+    // brought forward — so what rules TIME_TICK out is not a worse per-event cost but pure
+    // frequency: it doubles every minute boundary (racing the timer's own wake, which can
+    // cancel-and-rerun an in-flight render), and — because the keyguard never stops us (SID-34) —
+    // it would be delivered every awake minute all night with the screen off, paying that cost for
+    // nothing anyone sees. The three above fire only when the clock may actually have jumped.
+    private val timeResyncReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            timeResync.intValue += 1
+        }
+    }
+
     // SID-12's stale-entry pruning. PACKAGE_ADDED / PACKAGE_REMOVED, runtime-registered — the same
     // route USER_PRESENT takes below, and not really a choice here: these are implicit broadcasts
     // about other packages, which a manifest-declared receiver has not been served since API 26.
@@ -142,6 +169,7 @@ class MainActivity : ComponentActivity() {
                 homeRecall = homeRecall.intValue,
                 appReveal = appReveal.intValue,
                 packageChange = packageChange.intValue,
+                timeResync = timeResync.intValue,
             )
         }
     }
@@ -197,6 +225,38 @@ class MainActivity : ComponentActivity() {
             ContextCompat.RECEIVER_EXPORTED,
         )
 
+        // The clock-desync fix. SCREEN_ON here is deliberate where USER_PRESENT was deliberate
+        // above, and the two choices are the same argument pointing opposite ways: the reveal
+        // cascade must wait for the user's eyes, but the clock must be correct *before* they
+        // arrive — resyncing behind the lockscreen is exactly the point. SID-34's objection to
+        // SCREEN_ON was about the cascade playing unseen; a state correction cannot play unseen,
+        // it can only be right. The onStart/onStop scope still covers the lock cycle because
+        // locking never stops us (SID-34): the receiver stays live under the keyguard, so the
+        // wake broadcast lands.
+        //
+        // EXPORTED, and it must be — the same silently-dropped-broadcast trap as both receivers
+        // above. All three actions are protected broadcasts, so only the system can send them; and
+        // a forged bump would cost one honest re-read of the clock, which is nothing.
+        ContextCompat.registerReceiver(
+            this,
+            timeResyncReceiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_TIME_CHANGED)
+                addAction(Intent.ACTION_TIMEZONE_CHANGED)
+            },
+            ContextCompat.RECEIVER_EXPORTED,
+        )
+
+        // The stopped-window catch-up for the receiver above — same hole as packagesStale, cheaper
+        // fix. While another app covered us the receiver was deaf, and the device may have slept;
+        // the frozen delay() means the clock we come back to can be stale. Unconditional where the
+        // package catch-up is gated, because the costs differ: that one re-enumerates every
+        // installed app to usually find nothing, this one re-reads the clock and recomposes a frame
+        // we are about to draw anyway (at worst, in a dawn/dusk window, the wallpaper render moves
+        // up — see the receiver comment above).
+        timeResync.intValue += 1
+
         // Belt-and-suspenders (SPEC §3): catch up on whatever happened while we were deaf. Gated on
         // the flag rather than fired every onStart, because an unconditional bump would re-enumerate
         // every installed app on every single return to home — the most common thing that happens on
@@ -217,6 +277,7 @@ class MainActivity : ComponentActivity() {
         super.onStop()
         unregisterReceiver(userPresentReceiver)
         unregisterReceiver(packageReceiver)
+        unregisterReceiver(timeResyncReceiver)
         wasBackgrounded = true
         packagesStale = true
     }

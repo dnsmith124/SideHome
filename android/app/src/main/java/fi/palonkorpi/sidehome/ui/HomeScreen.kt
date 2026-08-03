@@ -180,6 +180,7 @@ fun SideHomeApp(
     homeRecall: Int,
     appReveal: Int,
     packageChange: Int,
+    timeResync: Int,
 ) {
     val clockFormat by settings.clockFormatAsState()
     val theme by settings.themeAsState()   // SID-42: the active §6 theme (default Ambient)
@@ -243,7 +244,13 @@ fun SideHomeApp(
     // real clock — the display is only HH:mm, so we wake once per minute (at the minute
     // boundary), not every second. This is the only idle timer, so the home costs ~nothing
     // when nothing is happening: one repaint a minute as the clock + mood evolve.
-    val clock by produceState(initialValue = LocalDateTime.now()) {
+    //
+    // The timer cannot be the only driver: delay() counts uptime, which pauses while the CPU
+    // deep-sleeps, so a screen-off doze freezes the pending tick and the clock wakes stale by the
+    // whole doze. timeResync (MainActivity: SCREEN_ON / TIME_CHANGED / TIMEZONE_CHANGED) restarts
+    // the producer, whose first act is to read now(); this loop stays the only awake heartbeat —
+    // deliberately no TIME_TICK, see the receiver in MainActivity for why.
+    val clock by produceState(initialValue = LocalDateTime.now(), timeResync) {
         while (true) {
             val now = LocalDateTime.now()
             value = now
