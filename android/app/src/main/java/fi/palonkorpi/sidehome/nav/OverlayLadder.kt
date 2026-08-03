@@ -25,10 +25,13 @@ package fi.palonkorpi.sidehome.nav
  */
 data class OverlayStack(
     val coach: Boolean = false,
+    val wallpaperConsent: Boolean = false,
     val confirmRemoveFolder: Boolean = false,
     val hand: Boolean = false,
     val iconPicker: Boolean = false,
     val categoryPicker: Boolean = false,
+    /** The Photo theme's framing step is up (SID-43 crop flow) — a full-screen surface like the pickers. */
+    val photoPositioner: Boolean = false,
     val folderIcon: Boolean = false,
     val rename: Boolean = false,
     val strip: Boolean = false,
@@ -54,10 +57,12 @@ data class OverlayStack(
  */
 enum class BackStep {
     Coach,
+    WallpaperConsent,
     ConfirmRemoveFolder,
     Hand,
     IconPicker,
     CategoryPicker,
+    PhotoPositioner,
     FolderIcon,
     Rename,
     Strip,
@@ -117,6 +122,12 @@ private class Overlay(
 private val LADDER: List<Overlay> = listOf(
     // The coach sits over everything and eats every touch, so Back (a touch) can only be aimed at it.
     Overlay(present = { it.coach }, back = BackStep.Coach),
+    // The wallpaper consent (SID-180) is a question like the confirm modal, and Back answers its safe
+    // answer ("not now"). The host only raises it once the coach is down, so it never contends with it.
+    Overlay(
+        present = { it.wallpaperConsent }, back = BackStep.WallpaperConsent,
+        key = KeyRoute.ModalGlobalsOnly, blocksDrawer = true,
+    ),
     // A question is the innermost thing and answers Cancel — above the hand, because raising it already
     // put the carry down.
     Overlay(
@@ -134,6 +145,12 @@ private val LADDER: List<Overlay> = listOf(
     ),
     Overlay(
         present = { it.categoryPicker }, back = BackStep.CategoryPicker,
+        key = KeyRoute.ModalGlobalsOnly, detaches = true, blocksDrawer = true,
+    ),
+    // The photo positioner (SID-43): a full-screen framing surface on the pickers' exact contract —
+    // it owns the pinch/drag, so the arbiter must not read them as pane swipes. Back cancels.
+    Overlay(
+        present = { it.photoPositioner }, back = BackStep.PhotoPositioner,
         key = KeyRoute.ModalGlobalsOnly, detaches = true, blocksDrawer = true,
     ),
     Overlay(

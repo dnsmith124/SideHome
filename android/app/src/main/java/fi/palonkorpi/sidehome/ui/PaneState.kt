@@ -62,6 +62,10 @@ internal class PaneState(
     // Only the release needs it: the arbiter reports fling velocity in dp/s (it is a feel number,
     // tuned against thresholds), and [dragPx] is px like the rest of this layer.
     private val density: () -> Float,
+    // The rightmost page a swipe can reach — [FIRST_PAGE]'s runtime twin (SID-181). A lambda like
+    // [containerW] because, unlike the compile-time floor, this one changes live: turning weather
+    // off in settings pulls the ceiling in to Home without recreating the state.
+    private val lastPage: () -> Int = { FUTURE_PAGE },
 ) {
     /** Which page is settled. Mid-gesture this is still the page we left; [dragPx] is the travel. */
     var pageIndex by mutableIntStateOf(HOME_PAGE)
@@ -106,7 +110,7 @@ internal class PaneState(
     fun drag(dxPx: Float, edge: EdgeDir) {
         job?.cancel()
         val w = containerW()
-        val lower = if (pageIndex < FUTURE_PAGE) -w else 0f  // drag left (negative) reveals the next
+        val lower = if (pageIndex < lastPage()) -w else 0f   // drag left (negative) reveals the next
         val upper = if (pageIndex > FIRST_PAGE) w else 0f    // drag right (positive) reveals the prev
         val (lo, hi) = when (edge) {
             EdgeDir.LEFT -> 0f to upper
@@ -132,7 +136,7 @@ internal class PaneState(
      */
     fun goTo(target: Int, initialVelocityPxPerS: Float = 0f) {
         val w = containerW()
-        val np = target.coerceIn(FIRST_PAGE, FUTURE_PAGE)
+        val np = target.coerceIn(FIRST_PAGE, lastPage())
         val settledDrag = (pageIndex - np) * w // the current frame, expressed against the old index
         job?.cancel()
         job = scope.launch {
@@ -160,10 +164,11 @@ internal class PaneState(
     fun settleTarget(velocityTowardNextDpPerS: Float): Int {
         val w = containerW()
         val frac = if (w > 0f) -dragPx / w else 0f
-        // Coerce to the navigable floor: with Past disabled, a leftward fling from Home must land
-        // back on Home, never fall through to page 0.
+        // Coerce to the navigable range: with Past disabled, a leftward fling from Home must land
+        // back on Home, never fall through to page 0 — and with weather off (SID-181) the same is
+        // true of a rightward fling toward the disabled Future.
         return settlePage(pageIndex, frac, velocityTowardNextDpPerS, PAGE_COUNT, tuning())
-            .coerceAtLeast(FIRST_PAGE)
+            .coerceIn(FIRST_PAGE, lastPage())
     }
 
     /**
@@ -186,17 +191,23 @@ internal class PaneState(
 }
 
 @Composable
-internal fun rememberPanes(containerW: Int, tuning: GestureTuning): PaneState {
+internal fun rememberPanes(
+    containerW: Int,
+    tuning: GestureTuning,
+    lastPage: Int = FUTURE_PAGE,
+): PaneState {
     val scope = rememberCoroutineScope()
     val wState = rememberUpdatedState(containerW)
     val tuningState = rememberUpdatedState(tuning)
     val densityState = rememberUpdatedState(LocalDensity.current.density)
+    val lastPageState = rememberUpdatedState(lastPage)
     return remember(scope) {
         PaneState(
             scope = scope,
             containerW = { wState.value.toFloat() },
             tuning = { tuningState.value },
             density = { densityState.value },
+            lastPage = { lastPageState.value },
         )
     }
 }

@@ -20,9 +20,12 @@ class WeatherApiTest {
         assertEquals(
             "https://api.open-meteo.com/v1/forecast" +
                 "?latitude=60.1695&longitude=24.9354" +
-                "&current=temperature_2m,weather_code" +
-                "&hourly=temperature_2m,weather_code,precipitation_probability" +
+                "&current=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m" +
+                ",apparent_temperature" +
+                "&hourly=temperature_2m,weather_code,precipitation_probability,wind_speed_10m,wind_direction_10m" +
                 "&daily=weather_code,temperature_2m_max,temperature_2m_min" +
+                ",sunrise,sunset,precipitation_probability_max,uv_index_max" +
+                "&minutely_15=precipitation" +
                 "&timezone=auto&timeformat=unixtime&forecast_days=7",
             url,
         )

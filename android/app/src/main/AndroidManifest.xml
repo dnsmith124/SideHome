@@ -6,6 +6,11 @@
          won't be: the place is typed and geocoded, not sensed. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Wallpaper sync (SID-180): keep the system/lock wallpaper matched to the theme so go-home
+         and app-close transitions don't flash whatever wallpaper predates the launcher. Normal
+         permission, and consent-gated in-app besides — nothing is set before the user approves. -->
+    <uses-permission android:name="android.permission.SET_WALLPAPER" />
+
     <!-- See every launchable app so the drawer can list them (package visibility, API 30+). -->
     <queries>
         <intent>

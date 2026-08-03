@@ -7,6 +7,8 @@ import android.net.Uri
 import android.provider.AlarmClock
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
@@ -40,7 +42,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -52,6 +56,7 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import fi.palonkorpi.sidehome.ambient.DEFAULT_LATITUDE
+import fi.palonkorpi.sidehome.ambient.Theme
 import fi.palonkorpi.sidehome.ambient.accentColor
 import fi.palonkorpi.sidehome.ambient.computeMood
 import fi.palonkorpi.sidehome.ambient.customHueRadians
@@ -106,17 +111,31 @@ import fi.palonkorpi.sidehome.nav.homeKeyAction
 import fi.palonkorpi.sidehome.nav.keyRoute
 import fi.palonkorpi.sidehome.nav.overlayTextFieldFocused
 import fi.palonkorpi.sidehome.nav.shouldFireCascade
+import fi.palonkorpi.sidehome.photo.BAKE_STYLE_VERSION
+import fi.palonkorpi.sidehome.photo.PhotoBake
 import fi.palonkorpi.sidehome.settings.SettingsStore
 import fi.palonkorpi.sidehome.settings.clockFormatAsState
 import fi.palonkorpi.sidehome.settings.customDriftAsState
 import fi.palonkorpi.sidehome.settings.customHueAsState
 import fi.palonkorpi.sidehome.settings.customSatAsState
+import fi.palonkorpi.sidehome.settings.drawerListFirstAsState
 import fi.palonkorpi.sidehome.settings.formatClock
 import fi.palonkorpi.sidehome.settings.keyNavEnabledAsState
+import fi.palonkorpi.sidehome.settings.photoGenerationAsState
+import fi.palonkorpi.sidehome.settings.photoMoodAsState
+import fi.palonkorpi.sidehome.settings.showIndexBadgesAsState
 import fi.palonkorpi.sidehome.settings.themeAsState
+import fi.palonkorpi.sidehome.settings.wallpaperSyncHomeAsState
+import fi.palonkorpi.sidehome.settings.wallpaperSyncLockAsState
+import fi.palonkorpi.sidehome.settings.weatherEnabledAsState
 import fi.palonkorpi.sidehome.settings.weatherPlaceAsState
+import fi.palonkorpi.sidehome.wallpaper.applyWallpaper
+import fi.palonkorpi.sidehome.wallpaper.wallpaperDue
 import fi.palonkorpi.sidehome.weather.FuturePane
 import java.time.LocalDateTime
+import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.max
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -168,6 +187,11 @@ fun SideHomeApp(
     val customSat by settings.customSatAsState()   // SID-15: the Custom theme's saturation
     val customDrift by settings.customDriftAsState()   // SID-177: Custom follows the day (opt-in, off)
     val weatherPlace by settings.weatherPlaceAsState()   // its latitude casts the day-cycle (below)
+    val weatherEnabled by settings.weatherEnabledAsState()   // SID-181: off disables Future outright
+    val drawerListFirst by settings.drawerListFirstAsState()   // SID-182: library opens quiet
+    val showIndexBadges by settings.showIndexBadgesAsState()   // SID-183: the 1–9 quick-launch labels
+    val photoMoodPref by settings.photoMoodAsState()   // SID-43: the Photo theme's extracted mood
+    val photoGeneration by settings.photoGenerationAsState()   // SID-43: bake cache key; 0 = none
     // installed apps (loaded off the main thread) + the home model (apps + folders)
     var apps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
     val appsByKey = remember(apps) { apps.associateBy { it.key } }
@@ -236,7 +260,10 @@ fun SideHomeApp(
     // sky's day length and twilight match where they are; DEFAULT_LATITUDE until one is set.
     val skyLatitude = weatherPlace?.lat ?: DEFAULT_LATITUDE
     val solarMood = computeMood(hour, skyLatitude, clock.dayOfYear)
-    val mood = themeMood(theme, solarMood, customHueRadians(customHue), customSat, customDrift)
+    val mood = themeMood(
+        theme, solarMood, customHueRadians(customHue), customSat, customDrift,
+        photoMood = photoMoodPref,
+    )
 
     // adaptive foreground with hysteresis so it flips decisively, never muddles. The edge/dark-centre
     // theme paints a dark middle regardless of the sky, so its centred home text always inks light.
@@ -250,8 +277,66 @@ fun SideHomeApp(
     val view = LocalView.current
     val context = LocalContext.current
 
+    // ---- wallpaper sync (SID-180) ----------------------------------------------------------
+    // Consent-gated: both flags stay off until the one-time modal's Approve writes them. The
+    // perceptual-delta gate inside keeps the actual setBitmap rare — a handful of re-sets around
+    // dawn and dusk, silence through midday and midnight — so this effect can simply key on the
+    // mood and let almost every evaluation return early.
+    val wallpaperSyncHome by settings.wallpaperSyncHomeAsState()
+    val wallpaperSyncLock by settings.wallpaperSyncLockAsState()
+    LaunchedEffect(mood, theme, wallpaperSyncHome, wallpaperSyncLock, photoGeneration) {
+        if (!wallpaperSyncHome && !wallpaperSyncLock) return@LaunchedEffect
+        // Photo theme (SID-43): the wallpaper is the crisp bake, set once per pick — nothing
+        // drifts here, so the delta gate is replaced by a generation check.
+        if (theme == Theme.PHOTO && photoGeneration > 0) {
+            if (settings.wallpaperPhotoGeneration == photoGeneration) return@LaunchedEffect
+            val ok = withContext(Dispatchers.IO) {
+                // Home slot: the crisp bake, zones and all — it must match what the launcher
+                // paints, or the go-home transition flashes the seam. Lock slot: the clean crop —
+                // the lock screen is a photo, not a launcher, so no baked-in blur.
+                val homeOk = !wallpaperSyncHome || PhotoBake.loadCrisp(context)
+                    ?.let { applyWallpaper(context, it, home = true, lock = false) } == true
+                val lockOk = !wallpaperSyncLock || PhotoBake.loadClean(context)
+                    ?.let { applyWallpaper(context, it, home = false, lock = true) } == true
+                homeOk && lockOk
+            }
+            if (ok) settings.wallpaperPhotoGeneration = photoGeneration
+            return@LaunchedEffect
+        }
+        if (!wallpaperDue(mood, settings.lastWallpaperMood)) return@LaunchedEffect
+        val metrics = context.resources.displayMetrics
+        val ok = withContext(Dispatchers.Default) {
+            val frame = renderSkyBitmap(
+                mood = mood,
+                widthPx = metrics.widthPixels,
+                heightPx = metrics.heightPixels,
+                edgeOnly = edgeOnly(theme),
+                hueSpread = fieldHueSpread(theme),
+            )
+            applyWallpaper(context, frame, wallpaperSyncHome, wallpaperSyncLock)
+        }
+        // Recorded only on success so a failed set retries at the next delta rather than never.
+        if (ok) settings.lastWallpaperMood = mood
+    }
+
     var folderIndex by remember { mutableStateOf<Int?>(null) }
     val scope = rememberCoroutineScope()
+
+    // SID-43: the Photo theme's image pick — a two-step flow now: pick, then *frame*. The pick
+    // only decodes (at ~2× the screen so the positioner's zoom has real pixels behind it); the
+    // bake happens when the positioner's "Use photo" commits the framed window, and the theme
+    // flips only once that bake lands. SAF's OpenDocument (there is no Google Photo Picker on a
+    // de-Googled ROM); the read grant only needs to outlive the decode.
+    var photoSource by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val metrics = context.resources.displayMetrics
+        scope.launch {
+            photoSource = withContext(Dispatchers.IO) {
+                PhotoBake.loadSource(context, uri, metrics.widthPixels * 2, metrics.heightPixels * 2)
+            }
+        }
+    }
 
     // ---- app library as the up-pane of the cross (SID-60) ----
     // The library stopped being a sheet you pull up and became a place you go, on the same grammar
@@ -356,6 +441,11 @@ fun SideHomeApp(
     // next launch.
     val coach = rememberCoach(settings)
 
+    // SID-180's one-time wallpaper consent, on the coach's exact contract: the flag is read once,
+    // answering (either way) is what writes. It waits its turn behind the coach so a fresh install
+    // sees one question at a time.
+    val wallpaperConsent = rememberWallpaperConsent(settings)
+
     // The Future pane's city composer is up (SID-35). Tracked here for one reason: a text field is a
     // surface you are inside, so it detaches the arbiter exactly as the drawer and the strip do —
     // otherwise a stray horizontal drag pages the pane out from under someone mid-word.
@@ -366,7 +456,18 @@ fun SideHomeApp(
         mutableIntStateOf(with(density) { configuration.screenWidthDp.dp.roundToPx() })
     }
     // Where the viewport sits across Past | Home | Future, and how a finger moves it (SPEC §7).
-    val panes = rememberPanes(containerW = containerW, tuning = tuning)
+    // SID-181: weather off pulls the pager's ceiling in to Home, mirroring the Past floor — the
+    // swipe-left page simply stops existing rather than opening onto an apology.
+    val panes = rememberPanes(
+        containerW = containerW,
+        tuning = tuning,
+        lastPage = if (weatherEnabled) FUTURE_PAGE else HOME_PAGE,
+    )
+    // If the toggle flips while the viewport is parked on Future, walk it home; goTo clamps to the
+    // new ceiling, so this is a recentre, not a jump to a now-forbidden page.
+    LaunchedEffect(weatherEnabled) {
+        if (!weatherEnabled && !panes.isCentered) panes.goTo(HOME_PAGE)
+    }
     var spotlightFrac by remember { mutableFloatStateOf(0f) }
     var spotlightJob by remember { mutableStateOf<Job?>(null) }
     var hud by remember { mutableStateOf(GestureHudState()) }
@@ -813,10 +914,12 @@ fun SideHomeApp(
     // the moment it is called (a Back press, a recomposition), off the composition path where needed.
     fun stack() = OverlayStack(
         coach = coach.visible,
+        wallpaperConsent = !coach.visible && wallpaperConsent.visible,
         confirmRemoveFolder = confirmRemoveFolder != null,
         hand = placement.hand != null,
         iconPicker = iconPickerFor != null,
         categoryPicker = categoryPickerFor != null,
+        photoPositioner = photoSource != null,
         folderIcon = folderIconFor != null,
         rename = renameFolderAt != null,
         strip = stripFor != null,
@@ -839,6 +942,9 @@ fun SideHomeApp(
             // The coach is over everything and eats every touch, so it is the only thing a Back can be
             // aimed at while it is up — dismissing it here is the same one way out (Back is a touch).
             BackStep.Coach -> coach.dismiss()
+            // The wallpaper consent answers its safe answer, exactly as the confirm modal answers
+            // Cancel: Back must never be the thing that overwrites a wallpaper.
+            BackStep.WallpaperConsent -> wallpaperConsent.dismiss()
             // A question is the innermost thing on screen and answers Cancel — before the hand, because
             // raising it already put the carry down.
             BackStep.ConfirmRemoveFolder -> confirmRemoveFolder = null
@@ -846,6 +952,8 @@ fun SideHomeApp(
             BackStep.Hand -> placement.cancel()
             BackStep.IconPicker -> iconPickerFor = null
             BackStep.CategoryPicker -> categoryPickerFor = null
+            // Back out of the framing step = don't use the photo; the chooser is still beneath.
+            BackStep.PhotoPositioner -> photoSource = null
             BackStep.FolderIcon -> folderIconFor = null
             BackStep.Rename -> renameFolderAt = null
             BackStep.Strip -> stripFor = null
@@ -1096,6 +1204,47 @@ fun SideHomeApp(
     val backdropColor = if (edgeOnly(theme)) Color(0xFF121316) else skyTone(mood)
     val menuColor = if (edgeOnly(theme)) Color(0xFF1B1D22) else sheetTone(mood)
 
+    // ---- Photo theme runtime (SID-43) --------------------------------------------------------
+    // Two static bakes and one crossfade — never a live blur (A22). The bakes load when the Photo
+    // theme is live *or* the chooser is up (its tile previews the crisp bake); generation is the
+    // cache key, so a re-pick swaps them wholesale.
+    val photoBakes = rememberPhotoBakes(
+        generation = photoGeneration,
+        active = photoGeneration > 0 && (theme == Theme.PHOTO || chooserMounted),
+    )
+    val photoActive = theme == Theme.PHOTO && photoBakes != null
+    // The crossfade to the blurred bake under the backdrop-less floats (strip / rename / confirm /
+    // carry) — DECISIONS' photo carve-out. The drawer and folder recede via their OverlayBackdrop
+    // fills instead, which also covers the scene being culled outright at drawerFull (overlayOpen).
+    val photoBlurTarget = photoActive &&
+        (stripFor != null || renameFolderAt != null || confirmRemoveFolder != null || placement.hand != null)
+    val photoBlur = animateFloatAsState(
+        targetValue = if (photoBlurTarget) 1f else 0f,
+        animationSpec = tween(200),
+        label = "photoBlur",
+    )
+    val photoOverlayBake = if (theme == Theme.PHOTO) photoBakes?.blurred else null
+
+    // A shipped bake-style change re-fits the stored crop lazily (SID-43) — no re-pick; the
+    // generation bump reloads the bitmaps everywhere, including the home wallpaper.
+    var photoRebaking by remember { mutableStateOf(false) }
+    LaunchedEffect(photoGeneration, theme) {
+        if (theme != Theme.PHOTO || photoGeneration <= 0) return@LaunchedEffect
+        if (settings.photoBakeStyle == BAKE_STYLE_VERSION) return@LaunchedEffect
+        photoRebaking = true
+        val metrics = context.resources.displayMetrics
+        val remood = withContext(Dispatchers.Default) {
+            PhotoBake.rebake(context, metrics.widthPixels, metrics.heightPixels)
+        }
+        if (remood != null) {
+            // The mood's lightness is ink-band-derived, so a style change can move the ink too.
+            settings.photoMood = remood
+            settings.photoBakeStyle = BAKE_STYLE_VERSION
+            settings.photoGeneration += 1
+        }
+        photoRebaking = false
+    }
+
     CompositionLocalProvider(
         LocalTextStyle provides LocalTextStyle.current.copy(fontFamily = Inter),
         LocalIndication provides NoIndication,
@@ -1155,14 +1304,34 @@ fun SideHomeApp(
                         if (!overlayOpen && chooserZoom.value < 0.999f) drawContent()
                     },
             ) {
-                ContinuousSky(
-                    mood = mood,
-                    containerW = containerW,
-                    panPx = { panes.panPx },
-                    edgeOnly = edgeOnly(theme),
-                    hueSpread = fieldHueSpread(theme),
-                    modifier = Modifier.fillMaxSize(),
-                )
+                // The Photo theme swaps the sky for its two baked bitmaps (SID-43); every other
+                // theme paints the panning sky exactly as before. Same slot, so the photo
+                // participates in the chooser zoom and sits under the panes and dots.
+                if (photoActive && photoBakes != null) {
+                    PhotoBackdrop(
+                        bakes = photoBakes,
+                        // Two drivers, whichever is stronger: the overlay tween (strip/rename/
+                        // confirm/carry), and the pane position — swiping toward the weather
+                        // dissolves the photo into its blurred bake in lockstep with the finger,
+                        // so the pane's text always lands on calm ground. Draw-phase reads only.
+                        blurFrac = {
+                            val w = containerW.toFloat()
+                            val paneFrac =
+                                if (w > 0f) (abs(panes.panPx) / w).coerceIn(0f, 1f) else 0f
+                            max(photoBlur.value, paneFrac)
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    ContinuousSky(
+                        mood = mood,
+                        containerW = containerW,
+                        panPx = { panes.panPx },
+                        edgeOnly = edgeOnly(theme),
+                        hueSpread = fieldHueSpread(theme),
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
                 // The home content, with an optional flag to omit its own vertical drag when the
                 // arbiter owns the pointer stream instead.
                 val homeContent: @Composable (Boolean) -> Unit = { attachDrag ->
@@ -1201,7 +1370,14 @@ fun SideHomeApp(
                             null
                         },
                         // Faint direct-index numbers (1–N) beside each item (SID-82), when a keypad's on.
-                        showIndexNumbers = hardwareKeys,
+                        showIndexNumbers = hardwareKeys && showIndexBadges,
+                        // Photo theme only: a soft halo under each label in the ink's opposite
+                        // ground — light ink gets a dark shadow, dark ink a light glow.
+                        labelHalo = if (theme == Theme.PHOTO) {
+                            (if (fg.luminance() > 0.5f) Color.Black else Color.White).copy(alpha = 0.6f)
+                        } else {
+                            null
+                        },
                         onOpenDebug = { if (DEBUG_MENU_ENABLED) debugOpen = true },
                         onClockClick = { launchClockApp() },
                         onLongPressBackground = { themeChooserOpen = true },
@@ -1238,14 +1414,19 @@ fun SideHomeApp(
                         // the launcher. It changes twice a swipe rather than every frame, which is
                         // what makes it safe to read in composition at all (SID-25).
                         futurePane = {
-                            FuturePane(
-                                settings = settings,
-                                fg = fg,
-                                accent = accent,
-                                visible = panes.pageIndex == FUTURE_PAGE,
-                                onComposerOpenChange = { futureComposerOpen = it },
-                                scrollState = futurePaneScroll,
-                            )
+                            // SID-181: with weather off the slot stays mounted (PanePager always
+                            // fills all three) but empty — and unreachable, the pager's ceiling
+                            // sits at Home.
+                            if (weatherEnabled) {
+                                FuturePane(
+                                    settings = settings,
+                                    fg = fg,
+                                    accent = accent,
+                                    visible = panes.pageIndex == FUTURE_PAGE,
+                                    onComposerOpenChange = { futureComposerOpen = it },
+                                    scrollState = futurePaneScroll,
+                                )
+                            }
                         },
                         // SID-26/SID-112: a press that lands on a home favourite defers to that item's
                         // own pickup, so a hold-then-drag reorders instead of the arbiter stealing it as
@@ -1258,11 +1439,15 @@ fun SideHomeApp(
                     // would pan away with the very home they report on. A lambda for the same reason
                     // GestureScene takes one: read in the draw phase, so a swipe repaints three
                     // circles instead of recomposing the tree.
-                    PageDots(
-                        pagePosition = { panes.pagePosition },
-                        fg = fg,
-                        modifier = Modifier.align(Alignment.TopCenter),
-                    )
+                    // SID-181: with weather off, Home is the only navigable page — dots reporting a
+                    // position across one place are noise, so they go entirely.
+                    if (weatherEnabled) {
+                        PageDots(
+                            pagePosition = { panes.pagePosition },
+                            fg = fg,
+                            modifier = Modifier.align(Alignment.TopCenter),
+                        )
+                    }
                 } else {
                     homeContent(true)
                 }
@@ -1277,11 +1462,12 @@ fun SideHomeApp(
             // doing the carrying. The backdrop is not part of that — it belongs to the open drawer.
             if (drawerWarm || drawerActive || placement.fingerCarryFromLibrary) {
                 if (drawerActive) {
-                    Box(
-                        Modifier
+                    OverlayBackdrop(
+                        color = backdropColor,
+                        photo = photoOverlayBake,
+                        modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer { alpha = drawerFrac }
-                            .background(backdropColor),
+                            .graphicsLayer { alpha = drawerFrac },
                     )
                 }
                 Drawer(
@@ -1314,6 +1500,7 @@ fun SideHomeApp(
                     keyNavActive = keyNavActive,
                     keyNavEnabled = keyNavEnabled,
                     config = keyNavConfig,
+                    searchFirst = !drawerListFirst,
                     onAppHold = { app, bounds -> stripFor = LibraryApp(app, bounds) },
                     // SID-30: hold a drawer app and drag → it detaches into the hand and the drawer
                     // melts away under it, leaving the app on the home's targets. The hold's strip
@@ -1375,7 +1562,7 @@ fun SideHomeApp(
 
             // opaque backdrop for the folder popover (the drawer has its own faded one)
             if (folderIndex != null) {
-                Box(Modifier.fillMaxSize().background(backdropColor))
+                OverlayBackdrop(color = backdropColor, photo = photoOverlayBake, modifier = Modifier.fillMaxSize())
             }
 
             folderIndex?.let { at ->
@@ -1389,7 +1576,7 @@ fun SideHomeApp(
                         accent = accent,
                         stripColor = menuColor,
                         selectedIndex = if (keyNavActive) folderCursor.coerceIn(0, (folder.appKeys.size - 1).coerceAtLeast(0)) else null,
-                        showIndexNumbers = hardwareKeys,
+                        showIndexNumbers = hardwareKeys && showIndexBadges,
                         onLaunch = { launchApp(it); folderIndex = null },
                         // SID-114: a member's hold raises the one host strip, as a [FolderMember] —
                         // same lifecycle (Back, key-nav, arbiter-detach) as every other strip. A
@@ -1416,7 +1603,7 @@ fun SideHomeApp(
                     fg = fg,
                     stripColor = menuColor,
                     selectedIndex = if (keyNavActive) stripCursor else null,
-                    showIndexNumbers = hardwareKeys,
+                    showIndexNumbers = hardwareKeys && showIndexBadges,
                     onAction = { runStripAction(subject, it) },
                     onDismiss = { stripFor = null },
                 )
@@ -1465,7 +1652,8 @@ fun SideHomeApp(
             // icon picker for a specific app (the strip's Change-icon cell). The glyph is a property
             // of the app, so the override propagates everywhere it appears — home and drawer both.
             iconPickerFor?.let { app ->
-                Box(Modifier.fillMaxSize().background(backdropColor)) {
+                Box(Modifier.fillMaxSize()) {
+                    OverlayBackdrop(color = backdropColor, photo = photoOverlayBake, modifier = Modifier.fillMaxSize())
                     IconPicker(
                         title = "Change icon",
                         current = glyphFor(app),
@@ -1488,7 +1676,8 @@ fun SideHomeApp(
             categoryPickerFor?.let { app ->
                 // Read the user's buckets once per open (JSON-backed) rather than every recomposition.
                 val userCats = remember(app) { repo.userCategories() }
-                Box(Modifier.fillMaxSize().background(backdropColor)) {
+                Box(Modifier.fillMaxSize()) {
+                    OverlayBackdrop(color = backdropColor, photo = photoOverlayBake, modifier = Modifier.fillMaxSize())
                     CategoryPicker(
                         currentCategoryId = app.category.id,
                         categories = categoryChoices(userCats),
@@ -1519,7 +1708,8 @@ fun SideHomeApp(
             // icon picker for a home folder — a folder's glyph lives on the home item, not on an app
             folderIconFor?.let { i ->
                 (home.getOrNull(i) as? FolderItem)?.let { folder ->
-                    Box(Modifier.fillMaxSize().background(backdropColor)) {
+                    Box(Modifier.fillMaxSize()) {
+                        OverlayBackdrop(color = backdropColor, photo = photoOverlayBake, modifier = Modifier.fillMaxSize())
                         IconPicker(
                             title = "Folder icon",
                             current = folder.glyph,
@@ -1582,7 +1772,26 @@ fun SideHomeApp(
             // just asked for. Nothing in resetToBareHome clears it: it is not overlay state a reveal
             // should step back through, it is a thing that happens once and is then gone.
             if (coach.visible) {
-                FirstRunCoach(fg = fg, panelColor = menuColor, onDismiss = { coach.dismiss() })
+                FirstRunCoach(
+                    fg = fg,
+                    panelColor = menuColor,
+                    onDismiss = { coach.dismiss() },
+                    weatherEnabled = weatherEnabled,
+                    quickLaunch = hardwareKeys,
+                )
+            }
+
+            // SID-180: the one-time wallpaper consent, behind the coach so a fresh install answers
+            // one question at a time. Like the coach, resetToBareHome never clears it — it is a
+            // question that happens once, not overlay state a reveal steps back through.
+            if (!coach.visible && wallpaperConsent.visible) {
+                WallpaperConsentModal(
+                    fg = fg,
+                    accent = accent,
+                    panelColor = menuColor,
+                    onApprove = { homeOn, lockOn -> wallpaperConsent.approve(homeOn, lockOn) },
+                    onDismiss = { wallpaperConsent.dismiss() },
+                )
             }
 
             // SID-42/SID-50: the theme picker. Swiping only browses; a tap on the centred tile
@@ -1599,6 +1808,9 @@ fun SideHomeApp(
                     onCustomSat = { settings.customSat = it },
                     customDrift = customDrift,
                     onCustomDrift = { settings.customDrift = it },
+                    photoMood = photoMoodPref,
+                    photoPreview = if (photoGeneration > 0) photoBakes?.crisp else null,
+                    onChoosePhoto = { photoPicker.launch(arrayOf("image/*")) },
                     solarMood = solarMood,
                     timeStr = formatClock(clock.hour, clock.minute, clockFormat),
                     screenAspect = if (containerH > 0) containerW.toFloat() / containerH else 0.75f,
@@ -1635,6 +1847,69 @@ fun SideHomeApp(
                             alpha = ((chooserZoom.value - CHOOSER_FADE_IN_AT) /
                                 (1f - CHOOSER_FADE_IN_AT)).coerceIn(0f, 1f)
                         },
+                )
+            }
+
+            // SID-43: the framing step, above the chooser it was launched from — Cancel (or Back)
+            // falls back to the chooser with nothing changed; "Use photo" bakes exactly the framed
+            // window off-main and flips the theme once it lands.
+            photoSource?.let { src ->
+                val sourceImage = remember(src) { src.asImageBitmap() }
+                // The ghost's rows are the real home — glyph + label per item, folders included —
+                // and its date is HomePage's own wording, so the skeleton being framed against is
+                // the one that will actually stand on the photo.
+                val ghostDate = remember(clock.dayOfMonth) {
+                    val dow = clock.dayOfWeek
+                        .getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())
+                        .replaceFirstChar { it.titlecase(Locale.getDefault()) }
+                    val month = clock.month.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())
+                    "$dow, ${clock.dayOfMonth} $month"
+                }
+                val ghostItems = remember(home, appsByKey) {
+                    home.mapNotNull { item ->
+                        when (item) {
+                            is AppItem -> appsByKey[item.key]?.let { it.glyph to it.label }
+                            is FolderItem -> item.glyph to item.name
+                        }
+                    }
+                }
+                PhotoPositioner(
+                    source = sourceImage,
+                    accent = accentColor(mood, false),
+                    timeStr = formatClock(clock.hour, clock.minute, clockFormat),
+                    dateStr = ghostDate,
+                    items = ghostItems,
+                    onUse = { zoom, panX, panY, rotDeg ->
+                        photoSource = null
+                        scope.launch {
+                            val metrics = context.resources.displayMetrics
+                            val extracted = withContext(Dispatchers.Default) {
+                                PhotoBake.bake(
+                                    context, src,
+                                    metrics.widthPixels, metrics.heightPixels,
+                                    zoom, panX, panY, rotDeg,
+                                )
+                            }
+                            if (extracted != null) {
+                                settings.photoMood = extracted
+                                settings.photoBakeStyle = BAKE_STYLE_VERSION
+                                settings.photoGeneration += 1
+                                settings.theme = Theme.PHOTO
+                            }
+                        }
+                    },
+                    onCancel = { photoSource = null },
+                )
+            }
+
+            // SID-43: the lazy rebake's corner chip — visible only while the zone blur re-fits a
+            // changed home.
+            if (photoRebaking) {
+                RebakeChip(
+                    fg = fg,
+                    accent = accent,
+                    panelColor = menuColor,
+                    modifier = Modifier.align(Alignment.BottomEnd),
                 )
             }
 

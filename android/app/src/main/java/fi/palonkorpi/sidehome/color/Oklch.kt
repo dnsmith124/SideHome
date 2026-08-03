@@ -68,6 +68,22 @@ fun hexToLch(hex: String): Lch {
     return Lch(lab[0], hypot(lab[1], lab[2]), atan2(lab[2], lab[1]))
 }
 
+/** A packed ARGB int (a bitmap pixel) in OKLab, `[L, a, b]`. Alpha is ignored — callers sample
+ *  opaque photo pixels. The int overload exists for the photo palette extraction (SID-43), which
+ *  walks pixel arrays and shouldn't pay a hex-string round-trip per sample. */
+fun argbToOklab(argb: Int): DoubleArray {
+    val r = ((argb shr 16) and 0xFF) / 255.0
+    val g = ((argb shr 8) and 0xFF) / 255.0
+    val b = (argb and 0xFF) / 255.0
+    return rgb2oklab(r, g, b)
+}
+
+/** A packed ARGB int as OKLCH, on [hexToLch]'s exact pipeline. */
+fun argbToLch(argb: Int): Lch {
+    val lab = argbToOklab(argb)
+    return Lch(lab[0], hypot(lab[1], lab[2]), atan2(lab[2], lab[1]))
+}
+
 fun Lch.toColor(alpha: Float = 1f): Color {
     val a = c * cos(h)
     val b = c * sin(h)

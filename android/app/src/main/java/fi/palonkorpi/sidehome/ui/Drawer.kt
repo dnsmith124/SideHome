@@ -148,6 +148,10 @@ fun Drawer(
     // browse-first).
     keyNavEnabled: Boolean = false,
     config: KeyNavConfig = KeyNavConfig.DEFAULT,
+    // SID-182: the list-first pref, inverted — false opens the A–Z list quiet (no focus, no IME,
+    // typing does nothing) with the search pill as a key-nav target. True is the shipped default
+    // (search-first, SID-21).
+    searchFirst: Boolean = true,
     onAppHold: (AppEntry, Rect) -> Unit,
     onAppPickup: (AppEntry, Rect) -> Unit,
     onAppDrag: (Offset) -> Unit,
@@ -207,7 +211,11 @@ fun Drawer(
     val configuration = LocalConfiguration.current
     val hardwareKeys = configuration.keyboard == Configuration.KEYBOARD_QWERTY &&
         configuration.hardKeyboardHidden == Configuration.HARDKEYBOARDHIDDEN_NO
-    val autoFocus = hardwareKeys &&
+    // SID-182: the list-first pref gates search-first entirely — with it off the list opens quiet
+    // (no focus, no IME) and *typing does nothing*: an unfocused field receives no letters, and the
+    // ladder keeps them PassThrough, so they die in the view hierarchy rather than quick-launching.
+    // Search is then a place you walk to — the pill is a key-nav target (below) — or tap.
+    val autoFocus = hardwareKeys && searchFirst &&
         if (grouped) config.searchAutoFocusGallery else config.searchAutoFocusList
     // The App Gallery's browse affordances — the marked bubble/member and the D-pad hint — need both a
     // hardware tile to drive them and key-nav on; a virtual-only device shows neither (SID-96).
@@ -265,6 +273,10 @@ fun Drawer(
     val currentLaunch by rememberUpdatedState(onLaunch)
     val currentHold by rememberUpdatedState(onAppHold)
     var cursor by remember { mutableStateOf(0) }
+    // SID-182: in list-first mode the search pill is a key-nav target one step above the top row —
+    // walk up from row 0 to select it, Select on it summons search (focus + IME). Never live in
+    // search-first mode, where the field is already focused.
+    var pillSelected by remember { mutableStateOf(false) }
     var bucketCursor by remember { mutableStateOf(0) }
     // A third cursor for a drilled-in bucket's members (SID-96) — a bucket is a folder-like layer, so
     // once open the keys walk its apps, not the bubble grid behind it.
@@ -279,7 +291,13 @@ fun Drawer(
     var pressedArm by remember { mutableStateOf<KeyIntent?>(null) }
     var pressSeq by remember { mutableStateOf(0) }
     LaunchedEffect(ranked) { cursor = 0 }
-    LaunchedEffect(atRest) { if (atRest) bucketCursor = 0 }
+    LaunchedEffect(atRest) { if (atRest) { bucketCursor = 0; pillSelected = false } }
+    // Typing (having reached the field) is its own selection — the pill's job is done.
+    LaunchedEffect(searching) { if (searching) pillSelected = false }
+    // Walking onto the pill brings the top of the list with it, so the target is on screen.
+    LaunchedEffect(pillSelected) {
+        if (pillSelected) runCatching { listState.animateScrollToItem(0) }
+    }
     // Land on the first member each time a bucket opens (or changes under an open popover).
     LaunchedEffect(openBucket) { memberCursor = 0 }
     LaunchedEffect(pressSeq) { if (pressedArm != null) { delay(160); pressedArm = null } }
@@ -330,12 +348,26 @@ fun Drawer(
             val n = ranked.size
             val cur = cursor.coerceIn(0, (n - 1).coerceAtLeast(0))
             when (intent) {
-                KeyIntent.NavDown -> cursor = moveCursor(cur, 1, n)
-                KeyIntent.NavUp -> cursor = moveCursor(cur, -1, n)
-                KeyIntent.Select -> ranked.getOrNull(cur)?.let(currentLaunch)
+                KeyIntent.NavDown ->
+                    if (pillSelected) pillSelected = false   // step off the pill, back to row 0
+                    else cursor = moveCursor(cur, 1, n)
+                KeyIntent.NavUp ->
+                    // List-first (SID-182): one step above the top row sits the search pill.
+                    if (!autoFocus && !pillSelected && cur == 0) pillSelected = true
+                    else if (!pillSelected) cursor = moveCursor(cur, -1, n)
+                KeyIntent.Select ->
+                    if (pillSelected) {
+                        // Selecting the pill is the deliberate act that summons search — the one
+                        // way into it by key when the list opens quiet.
+                        pillSelected = false
+                        runCatching { focus.requestFocus() }
+                    } else {
+                        ranked.getOrNull(cur)?.let(currentLaunch)
+                    }
                 // Hold the launch key (SID-87/SID-98): raise the library strip for the selected hit —
                 // the top one on a typing tile, where the cursor never moves (hold-Enter = manage top).
-                is KeyIntent.ItemMenu -> ranked.getOrNull(cur)?.let { currentHold(it, selectedBounds) }
+                is KeyIntent.ItemMenu ->
+                    if (!pillSelected) ranked.getOrNull(cur)?.let { currentHold(it, selectedBounds) }
                 else -> {}
             }
         }
@@ -465,7 +497,9 @@ fun Drawer(
                     // with the mode toggle beside it (the same translucent-fg cushion the toggle uses,
                     // per DECISIONS) rather than a bare underlined field next to a boxed control.
                     .clip(RoundedCornerShape(12.dp))
-                    .background(fg.copy(alpha = 0.07f))
+                    // The pill brightens to the rows' own selection fill while it is the key-nav
+                    // target (SID-182) — same vocabulary, one extra stop on the walk.
+                    .background(fg.copy(alpha = if (keyNavActive && pillSelected) 0.12f else 0.07f))
                     .padding(vertical = 10.dp, horizontal = 12.dp),
                 decorationBox = { innerTextField ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -557,7 +591,9 @@ fun Drawer(
                             accent = accent,
                             badged = isBadged(it.app, badgedPackages),
                             isFavourite = favouriteKeys.contains(it.app.key),
-                            selected = keyNavActive && it.app.key == selectedKey,
+                            // The pill and a row are never both marked: while the pill is the
+                            // target (SID-182), the cursor's row hands its highlight up.
+                            selected = keyNavActive && !pillSelected && it.app.key == selectedKey,
                             onBounds = { b -> if (it.app.key == selectedKey) selectedBounds = b },
                             tuning = tuning,
                             onLaunch = { onLaunch(it.app) },

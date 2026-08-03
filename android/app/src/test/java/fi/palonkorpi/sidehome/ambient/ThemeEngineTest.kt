@@ -136,6 +136,25 @@ class ThemeEngineTest {
         assertEquals("hue is preserved at the vivid end", hue, vivid.h, 1e-9)
     }
 
+    // ---- photo: the image-derived mood, frozen (SID-43) ----
+
+    @Test fun `photo pins the extracted mood regardless of the hour`() {
+        val extracted = Lch(0.42, 0.07, 2.1)
+        assertEquals(extracted, themeMood(Theme.PHOTO, day, photoMood = extracted))
+        assertEquals(
+            themeMood(Theme.PHOTO, day, photoMood = extracted),
+            themeMood(Theme.PHOTO, night, photoMood = extracted),
+        )
+        assertFalse(driftEnabled(Theme.PHOTO))
+        assertFalse(edgeOnly(Theme.PHOTO))
+    }
+
+    @Test fun `photo without a picked image falls back to the live solar mood`() {
+        // A Photo commit before any bake must render as the ambient, never a surprise keyframe.
+        assertEquals(day, themeMood(Theme.PHOTO, day))
+        assertEquals(night, themeMood(Theme.PHOTO, night, photoMood = null))
+    }
+
     // ---- the light keyframe reads light, the dark keyframe reads dark (never pure white/black) ----
 
     @Test fun `keyframes are tinted, not pure white or black`() {

@@ -11,6 +11,7 @@ import fi.palonkorpi.sidehome.ambient.DEFAULT_CUSTOM_DRIFT
 import fi.palonkorpi.sidehome.ambient.DEFAULT_CUSTOM_HUE_DEG
 import fi.palonkorpi.sidehome.ambient.DEFAULT_CUSTOM_SAT
 import fi.palonkorpi.sidehome.ambient.Theme
+import fi.palonkorpi.sidehome.color.Lch
 import fi.palonkorpi.sidehome.weather.Place
 import fi.palonkorpi.sidehome.weather.TempUnit
 
@@ -129,6 +130,133 @@ class SettingsStore(context: Context) {
         set(value) = prefs.edit().putBoolean(KEY_KEYNAV_ENABLED, value).apply()
 
     /**
+     * The faint 1–9 quick-launch numbers on home items, folder members and the strip (SID-183).
+     * On by default when a hardware tile is present — they are the visible half of the number-key
+     * quick launch. Off keeps quick-launch itself working (the keys don't need the labels; the
+     * labels exist for learning them) and drops only the badges, for people the numbers read as
+     * clutter or as a mystery count.
+     */
+    var showIndexBadges: Boolean
+        get() = prefs.getBoolean(KEY_SHOW_INDEX_BADGES, true)
+        set(value) = prefs.edit().putBoolean(KEY_SHOW_INDEX_BADGES, value).apply()
+
+    /**
+     * The library opens as a quiet list instead of search-first (SID-182). Off by default —
+     * search-first (SID-21) stays the shipped behaviour; this is the opt-out for people who
+     * prefer to browse. In list-first mode typing does nothing (no field is focused; letters
+     * die in the view hierarchy) and search is reached by tapping the pill or walking key-nav
+     * onto it.
+     */
+    var drawerListFirst: Boolean
+        get() = prefs.getBoolean(KEY_DRAWER_LIST_FIRST, false)
+        set(value) = prefs.edit().putBoolean(KEY_DRAWER_LIST_FIRST, value).apply()
+
+    /**
+     * Whether the weather exists in the launcher at all (SID-181). On by default. Off hides the
+     * home's glanceable line *and* disables the Future pane outright (a reachable empty pane is a
+     * dead end — the same reasoning that ships Past disabled): the swipe-left page, its dot, and
+     * the coach's line about it all go together. The weather *location* prefs survive a toggle,
+     * so turning it back on restores everything.
+     */
+    var weatherEnabled: Boolean
+        get() = prefs.getBoolean(KEY_WEATHER_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_WEATHER_ENABLED, value).apply()
+
+    /**
+     * The Photo theme's extracted mood (SID-43): the picked image's average OKLab, stored raw and
+     * frozen — ink and accent derive from it, so the theme keeps §6's "everything auto-derived"
+     * rule with the image as the source. Null until a photo has been picked and baked.
+     */
+    var photoMood: Lch?
+        get() {
+            val l = prefs.getFloat(KEY_PHOTO_L, Float.NaN)
+            val c = prefs.getFloat(KEY_PHOTO_C, Float.NaN)
+            val h = prefs.getFloat(KEY_PHOTO_H, Float.NaN)
+            if (l.isNaN() || c.isNaN() || h.isNaN()) return null
+            return Lch(l.toDouble(), c.toDouble(), h.toDouble())
+        }
+        set(value) = prefs.edit()
+            .putFloat(KEY_PHOTO_L, value?.l?.toFloat() ?: Float.NaN)
+            .putFloat(KEY_PHOTO_C, value?.c?.toFloat() ?: Float.NaN)
+            .putFloat(KEY_PHOTO_H, value?.h?.toFloat() ?: Float.NaN)
+            .apply()
+
+    /**
+     * The Photo theme's bake generation (SID-43): 0 = no photo ever baked; each successful bake
+     * increments it. Doubles as the readiness flag and the in-memory bitmap cache key — a re-pick
+     * bumps it and every reader reloads.
+     */
+    var photoGeneration: Int
+        get() = prefs.getInt(KEY_PHOTO_GEN, 0)
+        set(value) = prefs.edit().putInt(KEY_PHOTO_GEN, value).apply()
+
+    /**
+     * Which bake *style* the stored photo bakes carry (SID-43): the launcher rebakes lazily when
+     * this trails `PhotoBake.BAKE_STYLE_VERSION`, so a change to the zone recipe reaches existing
+     * installs without a re-pick. 0 = never baked.
+     */
+    var photoBakeStyle: Int
+        get() = prefs.getInt(KEY_PHOTO_STYLE, 0)
+        set(value) = prefs.edit().putInt(KEY_PHOTO_STYLE, value).apply()
+
+    /**
+     * Which photo bake the wallpaper was last set from (SID-180 × SID-43). On the Photo theme the
+     * delta gate is meaningless (nothing drifts), so the wallpaper re-sets exactly when this trails
+     * [photoGeneration].
+     */
+    var wallpaperPhotoGeneration: Int
+        get() = prefs.getInt(KEY_WALLPAPER_PHOTO_GEN, 0)
+        set(value) = prefs.edit().putInt(KEY_WALLPAPER_PHOTO_GEN, value).apply()
+
+    /**
+     * Wallpaper sync for the home screen (SID-180): whether the launcher keeps the *system*
+     * wallpaper set to a render of the current theme background, so go-home and app-close
+     * transitions reveal the theme instead of whatever wallpaper predates SideHome. Off by
+     * default — nothing is overwritten until the user approves it in the one-time consent
+     * modal; this is the persisted result of that choice, editable later in settings.
+     */
+    var wallpaperSyncHome: Boolean
+        get() = prefs.getBoolean(KEY_WALLPAPER_HOME, false)
+        set(value) = prefs.edit().putBoolean(KEY_WALLPAPER_HOME, value).apply()
+
+    /**
+     * Wallpaper sync for the lock screen (SID-180), same contract as [wallpaperSyncHome]. Its own
+     * flag because the lock slot is the more personal one — someone may keep a photo there even
+     * while running a mood launcher.
+     */
+    var wallpaperSyncLock: Boolean
+        get() = prefs.getBoolean(KEY_WALLPAPER_LOCK, false)
+        set(value) = prefs.edit().putBoolean(KEY_WALLPAPER_LOCK, value).apply()
+
+    /**
+     * Whether the one-time wallpaper consent modal has been answered (SID-180). Write-once like
+     * [coachSeen]: Approve and "not now" both land here, and the settings screen is how the user
+     * changes their mind afterwards.
+     */
+    var wallpaperConsentSeen: Boolean
+        get() = prefs.getBoolean(KEY_WALLPAPER_CONSENT, false)
+        set(value) = prefs.edit().putBoolean(KEY_WALLPAPER_CONSENT, value).apply()
+
+    /**
+     * The mood the wallpaper was last rendered at (SID-180), raw OKLCH components. The perceptual
+     * delta gate compares the live mood against this so the wallpaper is only re-set once the sky
+     * has visibly moved on — never per tick. Null means "never set".
+     */
+    var lastWallpaperMood: Lch?
+        get() {
+            val l = prefs.getFloat(KEY_WALLPAPER_L, Float.NaN)
+            val c = prefs.getFloat(KEY_WALLPAPER_C, Float.NaN)
+            val h = prefs.getFloat(KEY_WALLPAPER_H, Float.NaN)
+            if (l.isNaN() || c.isNaN() || h.isNaN()) return null
+            return Lch(l.toDouble(), c.toDouble(), h.toDouble())
+        }
+        set(value) = prefs.edit()
+            .putFloat(KEY_WALLPAPER_L, value?.l?.toFloat() ?: Float.NaN)
+            .putFloat(KEY_WALLPAPER_C, value?.c?.toFloat() ?: Float.NaN)
+            .putFloat(KEY_WALLPAPER_H, value?.h?.toFloat() ?: Float.NaN)
+            .apply()
+
+    /**
      * Register [onChange] for any settings change; returns a handle whose [AutoCloseable.close]
      * unregisters it. Fires on the thread the write happens on.
      */
@@ -150,6 +278,21 @@ class SettingsStore(context: Context) {
         const val KEY_WEATHER_PLACE = "weather_place"
         const val KEY_TEMP_UNIT = "temp_unit"
         const val KEY_KEYNAV_ENABLED = "keynav_enabled"
+        const val KEY_SHOW_INDEX_BADGES = "show_index_badges"
+        const val KEY_DRAWER_LIST_FIRST = "drawer_list_first"
+        const val KEY_WEATHER_ENABLED = "weather_enabled"
+        const val KEY_WALLPAPER_HOME = "wallpaper_home"
+        const val KEY_WALLPAPER_LOCK = "wallpaper_lock"
+        const val KEY_WALLPAPER_CONSENT = "wallpaper_consent"
+        const val KEY_WALLPAPER_L = "wallpaper_l"
+        const val KEY_WALLPAPER_C = "wallpaper_c"
+        const val KEY_WALLPAPER_H = "wallpaper_h"
+        const val KEY_PHOTO_L = "photo_l"
+        const val KEY_PHOTO_C = "photo_c"
+        const val KEY_PHOTO_H = "photo_h"
+        const val KEY_PHOTO_GEN = "photo_gen"
+        const val KEY_PHOTO_STYLE = "photo_style"
+        const val KEY_WALLPAPER_PHOTO_GEN = "wallpaper_photo_gen"
     }
 }
 
@@ -307,6 +450,97 @@ fun SettingsStore.keyNavEnabledAsState(): State<Boolean> {
     DisposableEffect(this) {
         state.value = keyNavEnabled
         val handle = addChangeListener { state.value = keyNavEnabled }
+        onDispose { handle.close() }
+    }
+    return state
+}
+
+/**
+ * Observe [SettingsStore.wallpaperSyncHome] as Compose [State] (SID-180). The live home reacts —
+ * flipping it on in settings (or in the consent modal) triggers a sync on the next mood evaluation.
+ */
+@Composable
+fun SettingsStore.wallpaperSyncHomeAsState(): State<Boolean> {
+    val state = remember(this) { mutableStateOf(wallpaperSyncHome) }
+    DisposableEffect(this) {
+        state.value = wallpaperSyncHome
+        val handle = addChangeListener { state.value = wallpaperSyncHome }
+        onDispose { handle.close() }
+    }
+    return state
+}
+
+/** Observe [SettingsStore.wallpaperSyncLock] as Compose [State] (SID-180), like [wallpaperSyncHomeAsState]. */
+@Composable
+fun SettingsStore.wallpaperSyncLockAsState(): State<Boolean> {
+    val state = remember(this) { mutableStateOf(wallpaperSyncLock) }
+    DisposableEffect(this) {
+        state.value = wallpaperSyncLock
+        val handle = addChangeListener { state.value = wallpaperSyncLock }
+        onDispose { handle.close() }
+    }
+    return state
+}
+
+/** Observe [SettingsStore.showIndexBadges] as Compose [State] (SID-183), like [keyNavEnabledAsState]. */
+@Composable
+fun SettingsStore.showIndexBadgesAsState(): State<Boolean> {
+    val state = remember(this) { mutableStateOf(showIndexBadges) }
+    DisposableEffect(this) {
+        state.value = showIndexBadges
+        val handle = addChangeListener { state.value = showIndexBadges }
+        onDispose { handle.close() }
+    }
+    return state
+}
+
+/** Observe [SettingsStore.drawerListFirst] as Compose [State] (SID-182), like [keyNavEnabledAsState]. */
+@Composable
+fun SettingsStore.drawerListFirstAsState(): State<Boolean> {
+    val state = remember(this) { mutableStateOf(drawerListFirst) }
+    DisposableEffect(this) {
+        state.value = drawerListFirst
+        val handle = addChangeListener { state.value = drawerListFirst }
+        onDispose { handle.close() }
+    }
+    return state
+}
+
+/**
+ * Observe [SettingsStore.weatherEnabled] as Compose [State] (SID-181). Both the pane ceiling and
+ * the glance line react live — flipping it in settings recentres the panes without a relaunch.
+ */
+@Composable
+fun SettingsStore.weatherEnabledAsState(): State<Boolean> {
+    val state = remember(this) { mutableStateOf(weatherEnabled) }
+    DisposableEffect(this) {
+        state.value = weatherEnabled
+        val handle = addChangeListener { state.value = weatherEnabled }
+        onDispose { handle.close() }
+    }
+    return state
+}
+
+/** Observe [SettingsStore.photoMood] as Compose [State] (SID-43): a fresh bake re-inks the live
+ *  home the way a theme change does — through the shared-prefs listener. */
+@Composable
+fun SettingsStore.photoMoodAsState(): State<Lch?> {
+    val state = remember(this) { mutableStateOf(photoMood) }
+    DisposableEffect(this) {
+        state.value = photoMood
+        val handle = addChangeListener { state.value = photoMood }
+        onDispose { handle.close() }
+    }
+    return state
+}
+
+/** Observe [SettingsStore.photoGeneration] as Compose [State] (SID-43), like [photoMoodAsState]. */
+@Composable
+fun SettingsStore.photoGenerationAsState(): State<Int> {
+    val state = remember(this) { mutableStateOf(photoGeneration) }
+    DisposableEffect(this) {
+        state.value = photoGeneration
+        val handle = addChangeListener { state.value = photoGeneration }
         onDispose { handle.close() }
     }
     return state

@@ -78,4 +78,23 @@ class FirstRunCoachTest {
         assertEquals(1, flag.writes)
         assertFalse(coach.visible)
     }
+
+    // ---- the line set (SID-181): teach only gestures that do something ----------------------
+
+    @Test fun `with weather on the coach teaches apps and weather`() {
+        assertEquals(listOf("apps", "weather"), coachLines(weatherEnabled = true).map { it.label })
+    }
+
+    @Test fun `with weather off the weather line goes — no coaching a swipe to nowhere`() {
+        assertEquals(listOf("apps"), coachLines(weatherEnabled = false).map { it.label })
+    }
+
+    @Test fun `a hardware tile adds the quick-launch row, as a badge not a chevron`() {
+        // SID-183: the 1–9 badges read as mystery counts until someone says otherwise; this is the
+        // someone. Touch-only devices never show the badges, so they are never coached about them.
+        val lines = coachLines(weatherEnabled = true, quickLaunch = true)
+        assertEquals(listOf("apps", "weather", "apps by number"), lines.map { it.label })
+        assertEquals("1–9", lines.last().badge)
+        assertEquals(listOf(null, null, "1–9"), lines.map { it.badge })
+    }
 }

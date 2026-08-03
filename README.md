@@ -81,12 +81,22 @@ SP-01 is a keypad phone, every part of it can be driven by the keys, no screen-t
   drop one onto another to make a folder; drag it off to remove. A full home is a question ("group, or
   replace?"), never a wall.
 - **An app library that's a place, not a sheet.** Swipe up. Search with real predictive typing on any
-  tile, or browse an A–Z list or grouped category bubbles — your choice, remembered.
+  tile, or browse an A–Z list or grouped category bubbles — your choice, remembered. It can open
+  ready-to-type or ready-to-scroll ("Library opens in", in Settings).
 - **Folders** that open in place, manage in place, and name themselves from what's inside.
-- **A weather page.** Swipe right to a calm forecast — now, a smart change-line ("clearing by 11:00"),
-  the next hours, and the week — for a place you type. *(Opt-in; see [Privacy](#privacy--permissions).)*
+- **A weather page.** Swipe right to a calm forecast for a place you type: now, a smart change-line
+  ("clearing by 11:00" — or "rain starting in ~30 min", from quarter-hour data), the hours with their
+  winds, sunrise and sunset, and the week with its rain odds — tap a day to open it up. Every extra
+  fact follows one rule: **absent unless it would surprise you.** Gusts appear only when they outrun
+  the wind, "feels like" only when it disagrees with the thermometer, UV only when it's worth
+  sunscreen. And if you'd rather have no forecast at all, one switch removes the page entirely.
+  *(Opt-in; see [Privacy](#privacy--permissions).)*
 - **Notification dots.** An optional accent dot on apps with something unread, on the home, in the
   drawer, and on folders. *(Opt-in; see [Privacy](#privacy--permissions).)*
+- **The whole phone can follow.** With your one-time approval, SideHome keeps the **system and lock
+  wallpaper** matched to the current theme — so switching apps, the recents view, and the lock screen
+  wear the same calm instead of flashing whatever wallpaper was there before. Nothing is replaced
+  until you approve. *(See [Privacy](#privacy--permissions).)*
 - **Full hardware key-navigation.** Drive every surface — favourites, the library, folders, menus —
   from the SP-01's physical keys, with no setup. See below.
 
@@ -121,8 +131,19 @@ legibility, so there are no illegible combinations and no free colour pickers.
 4. **Edge** — a dark home with a small, intense colour rim glowing at the border.
 5. **Custom** — pick your own **hue and saturation**; the engine derives lightness, ink and accent
    from it, so your colour breathes with the day and always stays readable.
+6. **Photo** *(new in v1.1)* — a picture of your own. Pick one and **frame it** — pinch, drag, and
+   twist it against a live ghost of your actual home, so you place the image around your clock and
+   apps, not around a guess. Legibility is baked in at pick time: a quiet fade under the text
+   column, a soft halo under the labels, and text and accent colours derived from the photo itself.
+   The library and weather pages stand on a pre-blurred copy, so they stay readable over any image
+   — and the lock screen gets the untouched photo, because a lock screen is a photo, not a launcher.
 
-<p align="center"><img src="assets/screenshots/themes.png" alt="The theme picker: the home zoomed out to a preview card with hue and saturation sliders for the Custom theme" width="260"></p>
+<p align="center">
+  <img src="assets/screenshots/themes.png" alt="The theme picker: the home zoomed out to a preview card with hue and saturation sliders for the Custom theme" width="240">
+  &nbsp;&nbsp;
+  <img src="assets/screenshots/photo.png" alt="The Photo theme: the home's clock and favourites sitting legibly on a personal photo of a sleeping cat" width="240">
+</p>
+<p align="center"><em>The theme picker, and the Photo theme wearing a picture of your own.</em></p>
 
 ---
 
@@ -134,7 +155,9 @@ QWERTY**, **Sundial**, and **T9** tiles; **Classic Keypad** and **Mini Controlle
 coming soon.
 
 - **Numbers are direct-index.** On the T9 and Compact QWERTY tiles, the 1–9 markings launch the
-  matching favourite (or pick a bubble) in a single press.
+  matching favourite (or pick a bubble) in a single press. The faint numbers on home items are these
+  shortcuts — each shows which key launches it, not a count of anything. Once you know the map by
+  heart, hide them in Settings ("App numbers"); the keys keep working without the labels.
 - **The Sundial ring is a D-pad.** Rock the ring to move a cursor, press the centre to select.
 - **Back and Select per tile.** QWERTY uses its hardware Back and Enter; the Sundial uses its corners;
   on T9, **Back is `*` and Select is `#`** (the top Call/Home/End row belongs to the phone, so the
@@ -174,12 +197,12 @@ The pack also carries [SideType](https://github.com/side-suite/SideType) and
 
 ### Anywhere else: Releases
 
-1. Grab the latest `app-release.apk` from
+1. Grab the latest APK from
    [Releases](https://github.com/side-suite/SideHome/releases) (or build it yourself — see
    [For developers](#for-developers)).
 2. Copy it to the phone and open it, or install over USB:
    ```
-   adb install -r app-release.apk
+   adb install -r SideHome-v1.1.apk
    ```
 
 For update notifications on this path, use
@@ -203,13 +226,15 @@ There's almost nothing to set up — that's the point.
   city. Nothing is fetched until you do.
 - **Notification dots (optional):** long-press empty home → the **gear** → **Notification dots** →
   grant access on Android's own page.
+- **Wallpaper sync (optional):** the first time it could apply, SideHome asks once whether the
+  system and lock wallpaper should follow the theme. Nothing is replaced unless you approve.
 
 ---
 
 ## Privacy & permissions
 
 SideHome is a launcher, not a data funnel — no tracking, no ads, no accounts, nothing to sign into. It
-declares exactly **two** permissions, each tied to a feature you opt into:
+declares exactly **three** permissions, each tied to a feature you opt into:
 
 ### `INTERNET` — for the weather, and only the weather
 
@@ -225,6 +250,20 @@ phone-home.
 
 *(`INTERNET` is a normal install-time Android permission, so it's granted at install and can't be
 toggled at runtime — but the app only ever* uses *it after you've set a location.)*
+
+### `SET_WALLPAPER` — new in v1.1, and it asks first
+
+This is what lets the **wallpaper sync** work: keeping the system and lock wallpaper matched to the
+current theme, so leaving the launcher doesn't flash an old wallpaper behind the calm.
+
+- **Nothing is overwritten before you say yes.** The first time a sync could happen, SideHome asks
+  once — a modal with separate home-screen and lock-screen toggles. Decline and it never asks again;
+  both toggles live on in Settings if you change your mind later.
+- **The permission only allows *setting* a wallpaper.** Android's `SET_WALLPAPER` cannot read one —
+  SideHome never sees, stores, or transmits the wallpaper you had.
+- **Writes are rare and local.** A new frame is set only when the theme's colour has genuinely
+  drifted (a perceptual threshold — a handful of times a day), or when you pick a new photo.
+  Everything is rendered on the phone; nothing involves the network.
 
 ### Notification access — optional, off by default
 
@@ -255,10 +294,13 @@ never "granted but promising not to look."
 
 ## Status
 
-**v1.0.** Feature-complete and running on the SP-01, with 470+ unit tests over the pure logic (colour,
-gestures, key-nav, drop rules). The left-hand **Past** pane ships disabled — Home is the left end — and
-the **Future** pane is weather-only for now; journal, reminders, calendar and spotlight search are
-parked for a later release.
+**v1.1.** Running on the SP-01, with 540+ unit tests over the pure logic (colour, gestures, key-nav,
+drop rules, weather). New this release: the **Photo theme**, the consent-gated **wallpaper sync**, a
+much richer **weather page** (wind, feels-like, sun, next-hour rain, rain odds, tap-a-day) with an
+off-switch for the whole page, the **"Library opens in"** choice, and the option to hide the
+direct-index numbers. The left-hand **Past** pane ships disabled — Home is the left end — and the
+**Future** pane is weather-only for now; journal, reminders, calendar and spotlight search are parked
+for a later release.
 
 ---
 

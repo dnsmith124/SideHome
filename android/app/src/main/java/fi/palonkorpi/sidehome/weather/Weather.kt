@@ -28,21 +28,32 @@ data class GeoResult(val place: Place, val region: String)
 /** How temperatures render. Persisted in [fi.palonkorpi.sidehome.settings.SettingsStore]. */
 enum class TempUnit { CELSIUS, FAHRENHEIT }
 
-/** One hourly sample. [precipProbPct] is 0..100; Open-Meteo sends null for it, which decodes to 0. */
+/** One hourly sample. [precipProbPct] is 0..100; Open-Meteo sends null for it, which decodes to 0.
+ *  Wind (SID-184): NaN / -1 = the feed didn't say, and the hourly strip omits its wind line. */
 data class HourPoint(
     val epochSec: Long,
     val tempC: Double,
     val code: Int,
     val precipProbPct: Int,
+    val windKmh: Double = Double.NaN,
+    val windDirDeg: Int = -1,
 )
 
-/** One day. [epochSec] is that day's local midnight. */
+/** One day. [epochSec] is that day's local midnight. The v1.1 fields ([sunriseSec] onward) default
+ *  to absence — 0 / -1 / NaN — and every line that would say them simply doesn't. */
 data class DayPoint(
     val epochSec: Long,
     val code: Int,
     val highC: Double,
     val lowC: Double,
+    val sunriseSec: Long = 0L,
+    val sunsetSec: Long = 0L,
+    val precipProbMaxPct: Int = -1,
+    val uvMax: Double = Double.NaN,
 )
+
+/** One 15-minute precipitation sample — the "next hour" line's raw material. */
+data class QuarterPoint(val epochSec: Long, val precipMm: Double)
 
 /**
  * A whole forecast, exactly as cached. It carries its own [placeName] and coords so a cache written
@@ -63,6 +74,18 @@ data class Forecast(
     val hours: List<HourPoint>,
     val days: List<DayPoint>,
     val fetchedAtMillis: Long,
+    // Current wind (SID-184): sustained speed and gusts in km/h, direction in meteorological
+    // degrees (whence it blows; 0 = from the north). NaN / -1 = the feed didn't say — a cache from
+    // before wind existed decodes to null anyway (version bump), so these defaults mostly serve
+    // tests and ragged feeds.
+    val nowWindKmh: Double = Double.NaN,
+    val nowGustKmh: Double = Double.NaN,
+    val nowWindDirDeg: Int = -1,
+    /** Apparent temperature (wind chill / humidity folded in); NaN = the feed didn't say. */
+    val nowFeelsC: Double = Double.NaN,
+    /** The next few hours at 15-minute grain, precipitation only — trimmed to a short horizon at
+     *  build time so the cache never carries a week of quarter-hours. */
+    val quarters: List<QuarterPoint> = emptyList(),
 ) {
     /** Today's high/low, if the feed gave us a today at all. */
     val today: DayPoint? get() = days.firstOrNull()
@@ -195,6 +218,153 @@ fun formatTemp(celsius: Double, unit: TempUnit): String {
     val v = if (unit == TempUnit.FAHRENHEIT) toFahrenheit(celsius) else celsius
     return "${v.roundToInt()}°"
 }
+
+// ---- wind (SID-184) -----------------------------------------------------------------------------
+
+/**
+ * How far gusts must stand above the sustained speed before the line mentions them. In a steady
+ * blow the gust figure is the same number said twice; it earns its place when it is the number
+ * that knocks your hat off — the Wellington case this feature exists for.
+ */
+const val GUST_MENTION_DELTA_KMH = 10.0
+
+private val COMPASS = listOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+
+/**
+ * An 8-wind compass label for a meteorological direction (whence the wind blows), or null when the
+ * feed didn't say. "NW 24 km/h" means what a forecast has always meant by it: wind *from* the
+ * north-west.
+ */
+fun compassLabel(dirDeg: Int): String? {
+    if (dirDeg < 0) return null
+    return COMPASS[(((dirDeg % 360) + 22.5) / 45.0).toInt() % 8]
+}
+
+/**
+ * The Now tier's wind line — "NW 24 km/h", "NW 24 km/h, gusts 45" — or null when the feed carried
+ * no wind (a pane that says "— km/h" is worse than one that says nothing). Speed is always said;
+ * direction when known; gusts only when they'd surprise you ([GUST_MENTION_DELTA_KMH]). km/h and
+ * never a unit toggle: wind is one number on one line, and Open-Meteo's default unit is the one
+ * every forecast in a km/h country already speaks.
+ */
+fun windLine(speedKmh: Double, gustKmh: Double, dirDeg: Int): String? {
+    if (!speedKmh.isFinite()) return null
+    val dir = compassLabel(dirDeg)?.let { "$it " } ?: ""
+    val gusts =
+        if (gustKmh.isFinite() && gustKmh >= speedKmh + GUST_MENTION_DELTA_KMH) {
+            ", gusts ${gustKmh.roundToInt()}"
+        } else {
+            ""
+        }
+    return "$dir${speedKmh.roundToInt()} km/h$gusts"
+}
+
+/**
+ * An hourly cell's wind, at the tightest it can be said: compass letter(s) and the speed, no unit
+ * — "NW 18". Six cells share a 480px row and every number in the strip is km/h, so the unit is
+ * said once by the Now tier. Null (no line at all) when the feed carried no hourly wind.
+ */
+fun windCellLabel(windKmh: Double, dirDeg: Int): String? {
+    if (!windKmh.isFinite()) return null
+    val speed = windKmh.roundToInt().toString()
+    return compassLabel(dirDeg)?.let { "$it $speed" } ?: speed
+}
+
+// ---- feels-like, sun, rain odds, UV (v1.1's second weather pass) --------------------------------
+
+/** How far apart the felt and measured temperatures must be before the line exists — the same
+ *  restraint rule as gusts: say it when it would surprise you, stay quiet when it's the same
+ *  number twice. */
+const val FEELS_MENTION_DELTA_C = 2.0
+
+/** "feels −12°", or null when the feed didn't say / it wouldn't surprise you. */
+fun feelsLine(nowC: Double, feelsC: Double, unit: TempUnit): String? {
+    if (!feelsC.isFinite() || !nowC.isFinite()) return null
+    if (abs(feelsC - nowC) < FEELS_MENTION_DELTA_C) return null
+    return "feels ${formatTemp(feelsC, unit)}"
+}
+
+/** "↑ 5:12   ↓ 21:48" in the user's clock, or null when the feed carried no sun times. */
+fun sunLine(sunriseSec: Long, sunsetSec: Long, utcOffsetSeconds: Int, format: ClockFormat): String? {
+    if (sunriseSec <= 0L || sunsetSec <= 0L) return null
+    val rise = formatClock(localHourOfDay(sunriseSec, utcOffsetSeconds), localMinute(sunriseSec, utcOffsetSeconds), format)
+    val set = formatClock(localHourOfDay(sunsetSec, utcOffsetSeconds), localMinute(sunsetSec, utcOffsetSeconds), format)
+    return "↑ $rise   ↓ $set"
+}
+
+/** Below this, a rain chance is background noise the week strip shouldn't say. */
+const val WEEK_PROB_THRESHOLD = 30
+
+/** A week cell's rain chance — "60%" — or null when it's low or unknown. The *strip* holds this
+ *  threshold; the expanded day says the number whenever it exists. */
+fun weekProbLabel(probPct: Int): String? =
+    if (probPct >= WEEK_PROB_THRESHOLD) "$probPct%" else null
+
+/** UV worth mentioning starts at "moderate" (WHO scale). */
+const val UV_MENTION = 3.0
+
+/** "UV 6", or null when unknown or too low to matter. */
+fun uvLabel(uvMax: Double): String? =
+    if (uvMax.isFinite() && uvMax >= UV_MENTION) "UV ${uvMax.roundToInt()}" else null
+
+/** The expanded day's small facts line — "rain 60% · UV 6" — or null when there is nothing to say.
+ *  Unlike the strip, the detail says any known rain chance: opening the day is asking. */
+fun dayFactsLine(day: DayPoint): String? {
+    val parts = listOfNotNull(
+        day.precipProbMaxPct.takeIf { it >= 0 }?.let { "rain $it%" },
+        uvLabel(day.uvMax),
+    )
+    return parts.joinToString(" · ").ifEmpty { null }
+}
+
+// ---- the next hour, at quarter grain ------------------------------------------------------------
+
+/** A quarter-hour with at least this much precipitation is "raining". */
+const val QUARTER_WET_MM = 0.1
+
+/** How far past "now" the quarters survive the build — enough for the next-hour line with slack
+ *  for a 20-minute cache, not a week of noise. */
+const val QUARTER_HORIZON_SEC = 4 * 3600L
+
+/**
+ * The line above the hourly tiers when the next 60 minutes hold news — "rain in ~30 min",
+ * "rain easing in ~15 min", "rain for the next hour" — or null when they don't (dry and staying
+ * dry). Quarter-grain is what the hour-grain change-line can't say; when this line exists the
+ * change-line stands down (the pane says one thing about the near future, not two).
+ */
+fun nextHourLine(quarters: List<QuarterPoint>, nowEpochSec: Long): String? {
+    val ahead = quarters
+        .filter { it.epochSec > nowEpochSec && it.epochSec <= nowEpochSec + 3600L }
+        .sortedBy { it.epochSec }
+    if (ahead.isEmpty()) return null
+    fun minutes(q: QuarterPoint) = ((q.epochSec - nowEpochSec) / 60L).toInt()
+
+    val wetNow = ahead.first().precipMm >= QUARTER_WET_MM
+    if (!wetNow) {
+        val onset = ahead.firstOrNull { it.precipMm >= QUARTER_WET_MM } ?: return null
+        return "rain in ~${minutes(onset)} min"
+    }
+    // Raining: find the quarter it stops and *stays* stopped (a single dry quarter inside a shower
+    // is not the rain ending — the change-line's own rule, at this grain).
+    val stops = ahead.indexOfFirst { it.precipMm < QUARTER_WET_MM }
+    if (stops >= 0 && ahead.drop(stops).all { it.precipMm < QUARTER_WET_MM }) {
+        return "rain easing in ~${minutes(ahead[stops])} min"
+    }
+    return "rain for the next hour"
+}
+
+// ---- the expanded day ---------------------------------------------------------------------------
+
+/**
+ * The expanded day's mini strip: that day's waking hours at three-hour steps (6, 9, … 21 local).
+ * Night hours are noise in a plan; six cells is the same rhythm the Now tier's hourly strip has.
+ */
+fun dayStrip(hours: List<HourPoint>, dayEpochSec: Long, utcOffsetSeconds: Int): List<HourPoint> =
+    hours.asSequence()
+        .filter { it.epochSec >= dayEpochSec && it.epochSec < dayEpochSec + 86_400L }
+        .filter { localHourOfDay(it.epochSec, utcOffsetSeconds).let { h -> h in 6..21 && h % 3 == 0 } }
+        .sortedBy { it.epochSec }
+        .toList()
 
 // ---- conditions ---------------------------------------------------------------------------------
 
@@ -354,6 +524,18 @@ fun buildForecast(
     dailyMaxC: List<Double>,
     dailyMinC: List<Double>,
     fetchedAtMillis: Long,
+    nowWindKmh: Double = Double.NaN,
+    nowGustKmh: Double = Double.NaN,
+    nowWindDirDeg: Int = -1,
+    hourlyWindKmh: List<Double> = emptyList(),
+    hourlyWindDir: List<Int> = emptyList(),
+    nowFeelsC: Double = Double.NaN,
+    dailySunrise: List<Long> = emptyList(),
+    dailySunset: List<Long> = emptyList(),
+    dailyPrecipProbMax: List<Int> = emptyList(),
+    dailyUvMax: List<Double> = emptyList(),
+    quarterTime: List<Long> = emptyList(),
+    quarterPrecip: List<Double> = emptyList(),
 ): Forecast {
     val hn = minOf(hourlyTime.size, hourlyTempC.size, hourlyCode.size, hourlyPrecipProb.size)
     val dn = minOf(dailyTime.size, dailyCode.size, dailyMaxC.size, dailyMinC.size)
@@ -366,12 +548,34 @@ fun buildForecast(
         nowTempC = nowTempC,
         nowCode = nowCode,
         hours = (0 until hn).map {
-            HourPoint(hourlyTime[it], hourlyTempC[it], hourlyCode[it], hourlyPrecipProb[it])
+            HourPoint(
+                hourlyTime[it], hourlyTempC[it], hourlyCode[it], hourlyPrecipProb[it],
+                // Wind columns degrade to absence, not truncation: a feed without them should
+                // cost the strip its wind line, never its hours.
+                windKmh = hourlyWindKmh.getOrElse(it) { Double.NaN },
+                windDirDeg = hourlyWindDir.getOrElse(it) { -1 },
+            )
         },
         days = (0 until dn).map {
-            DayPoint(dailyTime[it], dailyCode[it], dailyMaxC[it], dailyMinC[it])
+            DayPoint(
+                dailyTime[it], dailyCode[it], dailyMaxC[it], dailyMinC[it],
+                // The v1.1 columns degrade to absence, never truncate the week.
+                sunriseSec = dailySunrise.getOrElse(it) { 0L },
+                sunsetSec = dailySunset.getOrElse(it) { 0L },
+                precipProbMaxPct = dailyPrecipProbMax.getOrElse(it) { -1 },
+                uvMax = dailyUvMax.getOrElse(it) { Double.NaN },
+            )
         },
         fetchedAtMillis = fetchedAtMillis,
+        nowWindKmh = nowWindKmh,
+        nowGustKmh = nowGustKmh,
+        nowWindDirDeg = nowWindDirDeg,
+        nowFeelsC = nowFeelsC,
+        // The feed sends quarter-hours for the whole forecast span; only the near ones are the
+        // next-hour line's business, and only they earn a place in the cache.
+        quarters = (0 until minOf(quarterTime.size, quarterPrecip.size))
+            .map { QuarterPoint(quarterTime[it], quarterPrecip[it]) }
+            .filter { it.epochSec > nowTimeSec - 900L && it.epochSec <= nowTimeSec + QUARTER_HORIZON_SEC },
     )
 }
 

@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fi.palonkorpi.sidehome.settings.SettingsStore
 import fi.palonkorpi.sidehome.settings.tempUnitAsState
+import fi.palonkorpi.sidehome.settings.weatherEnabledAsState
 import fi.palonkorpi.sidehome.settings.weatherPlaceAsState
 
 /**
@@ -47,49 +48,100 @@ fun WeatherSettingsSection(
 ) {
     val place by settings.weatherPlaceAsState()
     val unit by settings.tempUnitAsState()
+    val enabled by settings.weatherEnabledAsState()
 
     Column(modifier) {
         Text("Weather", color = fg, fontWeight = FontWeight.Light, fontSize = 22.sp)
         Spacer(Modifier.height(14.dp))
 
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .clickable(onClick = onEditLocation)
-                .padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Location", color = fg, fontSize = 17.sp)
-            // Accent when set, plain when not: the same "this is live" mark the notification-dots
-            // row uses for its granted state, so the settings screen has one vocabulary and not two.
-            Text(
-                place?.name ?: "Not set — tap to choose",
-                color = if (place != null) accent else fg.copy(alpha = 0.7f),
-                fontSize = 15.sp,
-                fontWeight = if (place != null) FontWeight.SemiBold else FontWeight.Normal,
-            )
-        }
-
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "Typed, not sensed: SideHome asks Open-Meteo for the coordinates of a place you name, " +
-                "and never asks Android where you are.",
-            color = fg.copy(alpha = 0.85f),
-            fontSize = 13.sp,
-            lineHeight = 17.sp,
-        )
-
-        Spacer(Modifier.height(20.dp))
-
+        // SID-181: the master switch. Off removes the weather from the launcher — the home's glance
+        // line and the swipe-left pane both — and stops all fetching. The location and unit prefs
+        // survive underneath, so on restores exactly what was configured; their rows hide while off
+        // because settings for a thing that doesn't exist would be a lie.
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Temperature", color = fg, fontSize = 17.sp)
-            UnitToggle(selected = unit, fg = fg, accent = accent, onSelect = { settings.tempUnit = it })
+            Text("Show weather", color = fg, fontSize = 17.sp)
+            OnOffToggle(selected = enabled, fg = fg, accent = accent, onSelect = { settings.weatherEnabled = it })
+        }
+
+        if (enabled) {
+            Spacer(Modifier.height(20.dp))
+
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable(onClick = onEditLocation)
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Location", color = fg, fontSize = 17.sp)
+                // Accent when set, plain when not: the same "this is live" mark the notification-dots
+                // row uses for its granted state, so the settings screen has one vocabulary and not two.
+                Text(
+                    place?.name ?: "Not set — tap to choose",
+                    color = if (place != null) accent else fg.copy(alpha = 0.7f),
+                    fontSize = 15.sp,
+                    fontWeight = if (place != null) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
+
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Typed, not sensed: SideHome asks Open-Meteo for the coordinates of a place you name, " +
+                    "and never asks Android where you are.",
+                color = fg.copy(alpha = 0.85f),
+                fontSize = 13.sp,
+                lineHeight = 17.sp,
+            )
+
+            Spacer(Modifier.height(20.dp))
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Temperature", color = fg, fontSize = 17.sp)
+                UnitToggle(selected = unit, fg = fg, accent = accent, onSelect = { settings.tempUnit = it })
+            }
+        }
+    }
+}
+
+/** Off / On in [UnitToggle]'s exact pill — the weather master switch's control (SID-181). */
+@Composable
+private fun OnOffToggle(
+    selected: Boolean,
+    fg: Color,
+    accent: Color,
+    onSelect: (Boolean) -> Unit,
+) {
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(fg.copy(alpha = 0.08f)),
+    ) {
+        listOf("Off" to false, "On" to true).forEach { (text, value) ->
+            val isSelected = value == selected
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (isSelected) accent.copy(alpha = 0.22f) else Color.Transparent)
+                    .clickable { onSelect(value) }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    text,
+                    color = fg,
+                    fontSize = 15.sp,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
         }
     }
 }

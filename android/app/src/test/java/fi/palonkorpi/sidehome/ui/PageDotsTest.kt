@@ -124,6 +124,22 @@ class PageDotsTest {
         assertEquals(DOT_IDLE_ALPHA, dotAlpha(p.pagePosition, PAST_PAGE), 0.001f)
     }
 
+    @Test fun `with weather off a leftward drag lights nothing new — the ceiling's mirror`() {
+        // SID-181: the Future dot is no longer drawn and its pane is unreachable, so a leftward
+        // drag (toward it) buys no travel and Home stays the one lit dot.
+        val p = PaneState(
+            CoroutineScope(Dispatchers.Unconfined + SecondPerFrameClock()),
+            { w },
+            { GestureTuning() },
+            { 1.275f },
+            lastPage = { HOME_PAGE },
+        )
+        p.drag(-w / 2f, EdgeDir.NONE)   // finger left = toward the disabled Future
+        assertEquals(HOME_PAGE, p.pageIndex)
+        assertEquals(DOT_ACTIVE_ALPHA, dotAlpha(p.pagePosition, HOME_PAGE), 0.001f)
+        assertEquals(DOT_IDLE_ALPHA, dotAlpha(p.pagePosition, FUTURE_PAGE), 0.001f)
+    }
+
     @Test fun `before the panes are measured the dots still say Home rather than dividing by zero`() {
         // containerW is 0 for the first composition, and the dots are drawn in it.
         val unmeasured = PaneState(

@@ -68,14 +68,26 @@ private const val CHEVRON_RIGHT = 0f
  * other look wrong. Finger-direction wins because that is what the user has to *do*: the coach is
  * dismissed by doing it, and the dots are still there afterwards to say where they ended up.
  */
-private data class CoachLine(val rotation: Float, val label: String)
-
-private val COACH_LINES = listOf(
-    CoachLine(CHEVRON_UP, "apps"),
-    // Spotlight (swipe-down search) and Past both ship disabled for v1, so the coach teaches only the
-    // two gestures that actually do something: swipe up for apps, swipe left for the weather glance.
-    CoachLine(CHEVRON_LEFT, "weather"),
+internal data class CoachLine(
+    val rotation: Float,
+    val label: String,
+    /** A short text lead instead of the chevron — the 1–9 quick-launch row (SID-183), whose
+     *  "direction" is a keypress, not a swipe. Null = the chevron at [rotation]. */
+    val badge: String? = null,
 )
+
+// Spotlight (swipe-down search) and Past both ship disabled for v1, so the coach teaches only the
+// gestures that actually do something: swipe up for apps, and — while the weather exists (SID-181)
+// — swipe left for the weather glance. A function, not a constant list, because that second row is
+// now conditional; pure so the line set is testable without layout.
+internal fun coachLines(weatherEnabled: Boolean, quickLaunch: Boolean = false): List<CoachLine> =
+    buildList {
+        add(CoachLine(CHEVRON_UP, "apps"))
+        if (weatherEnabled) add(CoachLine(CHEVRON_LEFT, "weather"))
+        // The 1–9 badges read as mystery counts until someone says otherwise (SID-183) — one row,
+        // only when a hardware tile is fitted, because on touch alone the badges never show.
+        if (quickLaunch) add(CoachLine(0f, "apps by number", badge = "1–9"))
+    }
 
 /**
  * Whether the coach is up, and the one-way trip out of it.
@@ -132,6 +144,8 @@ internal fun FirstRunCoach(
     fg: Color,
     panelColor: Color,
     onDismiss: () -> Unit,
+    weatherEnabled: Boolean = true,
+    quickLaunch: Boolean = false,
 ) {
     val enter = rememberOverlayEnter(riseDp = 10f)
 
@@ -162,15 +176,24 @@ internal fun FirstRunCoach(
                 fontWeight = FontWeight.Medium,
             )
             Spacer(Modifier.height(14.dp))
-            COACH_LINES.forEach { line ->
+            coachLines(weatherEnabled, quickLaunch).forEach { line ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    LineIcon(
-                        glyph = "chevron",
-                        color = fg,
-                        size = 15.dp,
-                        strokeWidthUnits = 1.7f,
-                        modifier = Modifier.rotate(line.rotation),
-                    )
+                    if (line.badge != null) {
+                        Text(
+                            text = line.badge,
+                            color = fg,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    } else {
+                        LineIcon(
+                            glyph = "chevron",
+                            color = fg,
+                            size = 15.dp,
+                            strokeWidthUnits = 1.7f,
+                            modifier = Modifier.rotate(line.rotation),
+                        )
+                    }
                     Spacer(Modifier.width(14.dp))
                     Text(text = line.label, color = fg, fontSize = 15.sp)
                 }

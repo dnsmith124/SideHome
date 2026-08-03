@@ -17,11 +17,17 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import fi.palonkorpi.sidehome.ambient.baseFill
 import fi.palonkorpi.sidehome.ambient.fieldColor
 import fi.palonkorpi.sidehome.ambient.vignetteAlpha
@@ -220,6 +226,35 @@ fun AmbientBackground(
  * [containerW] is the viewport width in px (the pages' width); [panPx] is how far right of the
  * centre home the viewport has travelled.
  */
+/**
+ * The same two-pass sky, rendered once into an offscreen bitmap — the system-wallpaper frame
+ * (SID-180). This replays [drawSkyField] + [drawSkyLens] through a [CanvasDrawScope] exactly as a
+ * chooser tile would draw them, so the wallpaper is pixel-identical to the launcher's own backdrop
+ * at the moment it was set. Density is irrelevant here — every input to the sky is a fraction of
+ * the bitmap's own size.
+ */
+fun renderSkyBitmap(
+    mood: Lch,
+    widthPx: Int,
+    heightPx: Int,
+    edgeOnly: Boolean = false,
+    hueSpread: Float = 1f,
+    grainAlpha: Float = 0.035f,
+): Bitmap {
+    val image = ImageBitmap(widthPx, heightPx)
+    val canvas = androidx.compose.ui.graphics.Canvas(image)
+    val grain = ShaderBrush(
+        BitmapShader(buildGrainBitmap(), Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+    )
+    CanvasDrawScope().draw(
+        Density(1f), LayoutDirection.Ltr, canvas, Size(widthPx.toFloat(), heightPx.toFloat())
+    ) {
+        drawSkyField(mood, widthPx.toFloat(), originX = 0f, hueSpread = hueSpread)
+        drawSkyLens(mood, edgeOnly, grain, grainAlpha)
+    }
+    return image.asAndroidBitmap()
+}
+
 @Composable
 fun ContinuousSky(
     mood: Lch,

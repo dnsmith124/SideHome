@@ -50,10 +50,14 @@ import java.util.TimeZone
  * and weather-only**: no "Future" title, no beta tag, no "coming soon" — Calendar/reminders are
  * parked, and until they land this page is simply the weather, so it says nothing it isn't.
  *
- * Calm tiers and not a widget: **Now** (a big temperature, the condition and today's high/low), **one
- * change-line** that is *omitted whenever there is nothing to say*, an **hourly strip** (the next six
- * hours), and a **week strip**. Wind, humidity, pressure, UV, sunrise and feels-like are all excluded
- * — at 480px the space to say them is the space that makes the rest readable.
+ * Calm tiers and not a widget: **Now** (a big temperature, the condition, wind, feels-like when it
+ * would surprise you, today's high/low), **one near-future line** (the quarter-grain next-hour rain
+ * line when it has news, else the hour-grain change-line — never both), an **hourly strip** (the
+ * next six hours, each with its wind), a **sun line** (rise and set), and a **week strip** whose
+ * cells carry a rain chance when it's worth planning around and **expand on tap** into that day's
+ * detail: condition, sun times, rain odds + UV, and a waking-hours mini strip. Humidity and
+ * pressure stay excluded — at 480px the space to say them is the space that makes the rest
+ * readable, and everything here holds the restraint rule: absent unless it would surprise you.
  *
  * No text on this pane is dimmed. It is an ambient surface — content on the untouched sky — and
  * DECISIONS is explicit that those carry no muted copy: hierarchy here is size and weight, and the
@@ -158,13 +162,38 @@ fun FuturePane(
             } else {
                 PlaceLine(name = place?.name.orEmpty(), fg = fg, onEdit = { composerOpen = true })
                 if (shown != null) {
+                    // Which week day is expanded, by its midnight epoch. Local and unsaved: an
+                    // expansion is a glance's follow-up question, not state worth surviving a
+                    // relaunch. A changed forecast whose days moved simply no longer matches.
+                    var expandedDay by remember { mutableStateOf<Long?>(null) }
+
                     Spacer(Modifier.height(10.dp))
                     NowLine(forecast = shown, unit = unit, fg = fg)
-                    ChangeLine(forecast = shown, format = clockFormat, fg = fg)
+                    NearLine(forecast = shown, format = clockFormat, fg = fg)
                     Spacer(Modifier.height(20.dp))
                     HourlyStrip(forecast = shown, unit = unit, format = clockFormat, fg = fg)
+                    SunLine(forecast = shown, format = clockFormat, fg = fg)
                     Spacer(Modifier.height(16.dp))
-                    WeekStrip(days = shown.days, offsetSec = shown.utcOffsetSeconds, unit = unit, fg = fg)
+                    WeekStrip(
+                        days = shown.days,
+                        offsetSec = shown.utcOffsetSeconds,
+                        unit = unit,
+                        fg = fg,
+                        accent = accent,
+                        expandedEpoch = expandedDay,
+                        onToggle = { day ->
+                            expandedDay = if (expandedDay == day.epochSec) null else day.epochSec
+                        },
+                    )
+                    shown.days.firstOrNull { it.epochSec == expandedDay }?.let { day ->
+                        DayDetail(
+                            day = day,
+                            forecast = shown,
+                            unit = unit,
+                            format = clockFormat,
+                            fg = fg,
+                        )
+                    }
                     AsOfLine(forecast = shown, nowMillis = nowMillis, format = clockFormat, fg = fg)
                 }
             }
@@ -233,6 +262,30 @@ private fun NowLine(forecast: Forecast, unit: TempUnit, fg: Color) {
                         fontWeight = FontWeight.Normal,
                     )
                 }
+                // Wind (SID-184), directly under the condition it is part of: "NW 24 km/h", gusts
+                // only when they'd surprise you. Absent silently when the feed carried no wind.
+                windLine(forecast.nowWindKmh, forecast.nowGustKmh, forecast.nowWindDirDeg)?.let { wind ->
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        wind,
+                        color = fg,
+                        fontFamily = Inter,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Light,
+                    )
+                }
+                // Feels-like, only when it would surprise you (the gusts rule) — in the wind or
+                // the cold, the felt number is the honest one.
+                feelsLine(forecast.nowTempC, forecast.nowFeelsC, unit)?.let { feels ->
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        feels,
+                        color = fg,
+                        fontFamily = Inter,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Light,
+                    )
+                }
                 forecast.today?.let { day ->
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -292,36 +345,69 @@ private fun HourlyStrip(
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
                 )
+                // The hour's wind (SID-184): compass letter + speed, the strip's smallest honest
+                // form. Absent (no reserved height) when the feed carried no hourly wind.
+                windCellLabel(h.windKmh, h.windDirDeg)?.let { wind ->
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        wind,
+                        color = fg,
+                        fontFamily = Inter,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Light,
+                    )
+                }
             }
         }
     }
 }
 
 /**
- * Tier 2 — the one smart change-line, and **nothing at all** when [changeLine] has nothing to say.
- * No placeholder, no reserved height: the composable emits zero nodes, so a settled day closes the
- * gap rather than showing a hole where news would go.
+ * Tier 2 — the one line about the near future, and **nothing at all** when there is nothing to
+ * say. The quarter-grain next-hour rain line speaks first ("rain in ~30 min"); when it has no
+ * news the hour-grain change-line may ("rain starts ~16:00"); never both — the pane says one
+ * thing about what's coming, not two versions of it. No placeholder, no reserved height.
  */
 @Composable
-private fun ChangeLine(forecast: Forecast, format: ClockFormat, fg: Color) {
+private fun NearLine(forecast: Forecast, format: ClockFormat, fg: Color) {
     val line = remember(forecast, format) {
-        changeLine(
-            nowEpochSec = forecast.nowTimeSec,
-            nowCode = forecast.nowCode,
-            hours = forecast.hours,
-            utcOffsetSeconds = forecast.utcOffsetSeconds,
-            format = format,
-        )
+        nextHourLine(forecast.quarters, forecast.nowTimeSec)
+            ?: changeLine(
+                nowEpochSec = forecast.nowTimeSec,
+                nowCode = forecast.nowCode,
+                hours = forecast.hours,
+                utcOffsetSeconds = forecast.utcOffsetSeconds,
+                format = format,
+            )
     } ?: return
     Spacer(Modifier.height(4.dp))
     Text(line, color = fg, fontFamily = Inter, fontSize = 16.sp, fontWeight = FontWeight.Normal)
 }
 
 /**
- * Tier 3 — the week. Seven cells, each a day, a glyph, a high and a lighter low; no percentages,
- * nothing that turns a glance into a read. The low is a size-and-weight step down, never a dimmed
- * colour (DECISIONS forbids muted text here). Each day's condition reads by its glyph's shape — the
- * rain and storm silhouettes are their own — so no cell is tinted.
+ * Today's sun, under the hourly strip it bookends: "↑ 5:12   ↓ 21:48". The launcher's whole sky
+ * runs on the sun's arc; this is the one place its schedule is written down. Absent when the feed
+ * didn't carry it.
+ */
+@Composable
+private fun SunLine(forecast: Forecast, format: ClockFormat, fg: Color) {
+    val today = forecast.today ?: return
+    val line = remember(forecast, format) {
+        sunLine(today.sunriseSec, today.sunsetSec, forecast.utcOffsetSeconds, format)
+    } ?: return
+    Spacer(Modifier.height(12.dp))
+    Text(line, color = fg, fontFamily = Inter, fontSize = 12.sp, fontWeight = FontWeight.Light)
+}
+
+/**
+ * Tier 3 — the week. Seven cells, each a day, a glyph, a high and a lighter low, and — when it's
+ * worth planning around ([WEEK_PROB_THRESHOLD]) — a small rain chance. The low is a size-and-weight
+ * step down, never a dimmed colour (DECISIONS forbids muted text here). Each day's condition reads
+ * by its glyph's shape, so no cell is tinted.
+ *
+ * A cell is a question you can ask: tapping expands that day's detail below the strip (and marks
+ * the cell with the accent cushion the launcher uses for "selected" everywhere else); tapping again
+ * folds it away.
  */
 @Composable
 private fun WeekStrip(
@@ -329,6 +415,9 @@ private fun WeekStrip(
     offsetSec: Int,
     unit: TempUnit,
     fg: Color,
+    accent: Color,
+    expandedEpoch: Long?,
+    onToggle: (DayPoint) -> Unit,
 ) {
     val week = days.take(7)
     if (week.isEmpty()) return
@@ -345,7 +434,15 @@ private fun WeekStrip(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             week.forEach { day ->
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                val expanded = day.epochSec == expandedEpoch
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (expanded) accent.copy(alpha = 0.22f) else Color.Transparent)
+                        .clickable { onToggle(day) }
+                        .padding(horizontal = 3.dp, vertical = 3.dp),
+                ) {
                     Text(
                         weekdayLabel(day.epochSec, offsetSec),
                         color = fg,
@@ -375,6 +472,86 @@ private fun WeekStrip(
                         fontFamily = Inter,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Light,
+                    )
+                    weekProbLabel(day.precipProbMaxPct)?.let { prob ->
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            prob,
+                            color = fg,
+                            fontFamily = Inter,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Light,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The expanded day (v1.1): the answer to a tapped week cell, inline below the strip — the day
+ * named with its condition and range, its own sun times, the facts line (rain odds + UV, said
+ * whenever known: opening the day is asking), and a waking-hours mini strip at three-hour steps.
+ * Everything optional is absent rather than dashed.
+ */
+@Composable
+private fun DayDetail(
+    day: DayPoint,
+    forecast: Forecast,
+    unit: TempUnit,
+    format: ClockFormat,
+    fg: Color,
+) {
+    Spacer(Modifier.height(12.dp))
+    Text(
+        "${weekdayLabel(day.epochSec, forecast.utcOffsetSeconds)} — ${conditionWord(day.code)}, " +
+            "${formatTemp(day.highC, unit)} / ${formatTemp(day.lowC, unit)}",
+        color = fg,
+        fontFamily = Inter,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Medium,
+    )
+    sunLine(day.sunriseSec, day.sunsetSec, forecast.utcOffsetSeconds, format)?.let { sun ->
+        Spacer(Modifier.height(3.dp))
+        Text(sun, color = fg, fontFamily = Inter, fontSize = 12.sp, fontWeight = FontWeight.Light)
+    }
+    dayFactsLine(day)?.let { facts ->
+        Spacer(Modifier.height(3.dp))
+        Text(facts, color = fg, fontFamily = Inter, fontSize = 12.sp, fontWeight = FontWeight.Light)
+    }
+    val strip = remember(forecast, day.epochSec) {
+        dayStrip(forecast.hours, day.epochSec, forecast.utcOffsetSeconds)
+    }
+    if (strip.isNotEmpty()) {
+        Spacer(Modifier.height(10.dp))
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            strip.forEach { h ->
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        shortHourLabel(h.epochSec, forecast.utcOffsetSeconds, format),
+                        color = fg,
+                        fontFamily = Inter,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Light,
+                    )
+                    Spacer(Modifier.height(5.dp))
+                    LineIcon(
+                        glyph = conditionGlyph(h.code),
+                        color = fg,
+                        size = 16.dp,
+                        strokeWidthUnits = 1.6f,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        formatTemp(h.tempC, unit),
+                        color = fg,
+                        fontFamily = Inter,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
                     )
                 }
             }

@@ -50,6 +50,47 @@ class WeatherCacheTest {
         assertEquals(winter, decodeForecast(encodeForecast(winter)))
     }
 
+    @Test fun keepsTheWindAndItsAbsence() {
+        // SID-184: a measured wind survives the round-trip — the current reading and the hourly
+        // rows both — and so does "the feed didn't say" (NaN / -1 defaults); absence must never
+        // decode into a zero-km/h calm.
+        val windy = sample.copy(
+            nowWindKmh = 32.5,
+            nowGustKmh = 58.0,
+            nowWindDirDeg = 315,
+            hours = listOf(HourPoint(1_784_116_800L, 12.5, 3, 10, windKmh = 21.5, windDirDeg = 90)),
+        )
+        assertEquals(windy, decodeForecast(encodeForecast(windy)))
+        assertEquals(sample, decodeForecast(encodeForecast(sample)))
+    }
+
+    @Test fun aPreWindBlobIsAskedAgain() {
+        // an older blob has no wind in its rows; the version gate turns it into one refetch, not a crash
+        val old = encodeForecast(sample).replace("sidehome-weather-4", "sidehome-weather-3")
+        assertNull(decodeForecast(old))
+    }
+
+    @Test fun keepsTheSunTheOddsTheUvAndTheQuarters() {
+        // The v1.1 day fields and the quarter-hours round-trip — and their absences (the sample's
+        // defaults) stay absences.
+        val rich = sample.copy(
+            nowFeelsC = -3.5,
+            days = listOf(
+                DayPoint(
+                    1_784_073_600L, 3, 15.0, 8.5,
+                    sunriseSec = 1_784_090_000L, sunsetSec = 1_784_150_000L,
+                    precipProbMaxPct = 60, uvMax = 5.4,
+                ),
+            ),
+            quarters = listOf(
+                QuarterPoint(1_784_117_700L, 0.0),
+                QuarterPoint(1_784_118_600L, 1.2),
+            ),
+        )
+        assertEquals(rich, decodeForecast(encodeForecast(rich)))
+        assertEquals(sample, decodeForecast(encodeForecast(sample)))
+    }
+
     @Test fun keepsAPlaceNameWithSeparatorsInIt() {
         // the name is a whole line of its own, so the row/field separators can't reach it
         val awkward = sample.copy(placeName = "Sant Julià de Lòria; the one, with|everything")
@@ -70,7 +111,7 @@ class WeatherCacheTest {
 
     @Test fun rejectsAnotherVersionsBlob() {
         // a future build bumps the version and every old blob decodes to "no cache" = one refetch
-        val other = encodeForecast(sample).replaceFirst("sidehome-weather-1", "sidehome-weather-9")
+        val other = encodeForecast(sample).replaceFirst("sidehome-weather-4", "sidehome-weather-9")
         assertNull(decodeForecast(other))
     }
 
@@ -83,8 +124,11 @@ class WeatherCacheTest {
 
     @Test fun dropsATruncatedRowRatherThanTheWholeBlob() {
         val encoded = encodeForecast(sample)
-        val hoursLine = "1784116800,12.5,3,10|1784120400,13.25"
-        val damaged = encoded.replaceFirst("1784116800,12.5,3,10|1784120400,13.25,63,80", hoursLine)
+        val hoursLine = "1784116800,12.5,3,10,NaN,-1|1784120400,13.25"
+        val damaged = encoded.replaceFirst(
+            "1784116800,12.5,3,10,NaN,-1|1784120400,13.25,63,80,NaN,-1",
+            hoursLine,
+        )
         val decoded = decodeForecast(damaged)
         assertEquals(1, decoded?.hours?.size)
         assertEquals(2, decoded?.days?.size)

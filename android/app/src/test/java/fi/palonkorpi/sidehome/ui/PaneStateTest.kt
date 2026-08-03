@@ -75,6 +75,14 @@ class PaneStateTest {
     private fun panes(width: Float = w, clock: MonotonicFrameClock = SecondPerFrameClock()) =
         PaneState(CoroutineScope(Dispatchers.Unconfined + clock), { width }, { tuning }, { density })
 
+    /** A pager with the Future ceiling pulled in to Home — the weather-off shape (SID-181). */
+    private fun homeOnlyPanes(width: Float = w) =
+        PaneState(
+            CoroutineScope(Dispatchers.Unconfined + SecondPerFrameClock()),
+            { width }, { tuning }, { density },
+            lastPage = { HOME_PAGE },
+        )
+
     private fun PaneState.dragBody(dx: Float) = drag(dx, EdgeDir.NONE)
 
     // ---- the live drag ---------------------------------------------------------------------
@@ -119,6 +127,46 @@ class PaneStateTest {
         assertEquals(0f, p.dragPx, 0.01f)
         p.dragBody(400f)
         assertEquals(400f, p.dragPx, 0.01f)
+    }
+
+    // ---- the runtime ceiling: weather off makes Home the only page (SID-181) ----------------
+
+    @Test fun `with weather off a leftward drag from Home is refused — Future's mirror of the Past floor`() {
+        val p = homeOnlyPanes()
+        p.dragBody(-400f)   // toward the disabled Future
+        assertEquals(0f, p.dragPx, 0.01f)
+        p.dragBody(400f)    // toward the disabled Past, refused as ever
+        assertEquals(0f, p.dragPx, 0.01f)
+    }
+
+    @Test fun `with weather off a fling from Home settles on Home`() {
+        val p = homeOnlyPanes()
+        p.dragBody(-40f)
+        assertEquals(HOME_PAGE, p.settleTarget(900f))   // a committed fling toward Future — clamped
+    }
+
+    @Test fun `with weather off goTo(Future) lands on Home`() {
+        val p = homeOnlyPanes()
+        p.goTo(FUTURE_PAGE)
+        assertEquals(HOME_PAGE, p.pageIndex)
+        assertEquals(0f, p.dragPx, 0.01f)
+    }
+
+    @Test fun `the ceiling is read live — the same state tightens when the lambda's value changes`() {
+        // The host feeds the pref through rememberUpdatedState, so the ceiling must be consulted
+        // per call, never captured at construction.
+        var last = FUTURE_PAGE
+        val p = PaneState(
+            CoroutineScope(Dispatchers.Unconfined + SecondPerFrameClock()),
+            { w }, { tuning }, { density },
+            lastPage = { last },
+        )
+        p.dragBody(-400f)
+        assertEquals(-400f, p.dragPx, 0.01f)   // Future reachable: travel allowed
+        p.goTo(HOME_PAGE)
+        last = HOME_PAGE
+        p.dragBody(-400f)
+        assertEquals(0f, p.dragPx, 0.01f)      // ceiling pulled in: the same drag now buys nothing
     }
 
     // ---- the edge Back-bands ---------------------------------------------------------------

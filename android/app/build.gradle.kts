@@ -28,8 +28,8 @@ android {
         applicationId = "fi.palonkorpi.sidehome"
         minSdk = 31          // Sidephone SP-01 = Android 12 / API 31
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
     }
 
     signingConfigs {

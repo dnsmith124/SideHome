@@ -52,8 +52,12 @@ import fi.palonkorpi.sidehome.notifications.NotificationBadges
 import fi.palonkorpi.sidehome.settings.ClockFormat
 import fi.palonkorpi.sidehome.settings.SettingsStore
 import fi.palonkorpi.sidehome.settings.clockFormatAsState
+import fi.palonkorpi.sidehome.settings.drawerListFirstAsState
 import fi.palonkorpi.sidehome.settings.keyNavEnabledAsState
 import fi.palonkorpi.sidehome.settings.notificationAccessStatus
+import fi.palonkorpi.sidehome.settings.showIndexBadgesAsState
+import fi.palonkorpi.sidehome.settings.wallpaperSyncHomeAsState
+import fi.palonkorpi.sidehome.settings.wallpaperSyncLockAsState
 import fi.palonkorpi.sidehome.weather.CityComposer
 import fi.palonkorpi.sidehome.weather.WeatherSettingsSection
 import fi.palonkorpi.sidehome.weather.rememberWeatherStore
@@ -90,6 +94,8 @@ private fun SettingsScreen(settings: SettingsStore) {
 
     val clockFormat by settings.clockFormatAsState()
     val keyNavEnabled by settings.keyNavEnabledAsState()
+    val drawerListFirst by settings.drawerListFirstAsState()
+    val showIndexBadges by settings.showIndexBadgesAsState()
 
     // SID-35's §4a location mirror. The composer *replaces* the settings column rather than floating
     // over it: this screen has no recede-by-blur machinery of its own, and a modal that just sat on
@@ -162,7 +168,37 @@ private fun SettingsScreen(settings: SettingsStore) {
                 }
 
                 Spacer(Modifier.height(28.dp))
+                // SID-182: search-first ("Search") is the shipped default; "List" opens the library
+                // quiet — no focused field, no IME, typing does nothing, and the search pill is a
+                // tap or a key-nav walk away.
+                SettingRow(label = "Library opens in", fg = fg) {
+                    Segmented(
+                        options = listOf("Search" to false, "List" to true),
+                        selected = drawerListFirst,
+                        fg = fg,
+                        accent = accent,
+                        onSelect = { settings.drawerListFirst = it },
+                    )
+                }
+
+                Spacer(Modifier.height(28.dp))
+                // SID-183: the faint 1–9 labels on home items — the visible half of the number-key
+                // quick launch. Off drops only the labels; the keys keep launching.
+                SettingRow(label = "App numbers", fg = fg) {
+                    Segmented(
+                        options = listOf("Off" to false, "On" to true),
+                        selected = showIndexBadges,
+                        fg = fg,
+                        accent = accent,
+                        onSelect = { settings.showIndexBadges = it },
+                    )
+                }
+
+                Spacer(Modifier.height(28.dp))
                 NotificationDotsRow(fg = fg, accent = accent)
+
+                Spacer(Modifier.height(28.dp))
+                WallpaperSection(settings = settings, fg = fg, accent = accent)
 
                 Spacer(Modifier.height(28.dp))
                 WeatherSettingsSection(
@@ -189,6 +225,48 @@ private fun SettingRow(label: String, fg: Color, control: @Composable () -> Unit
     ) {
         Text(label, color = fg, fontSize = 17.sp)
         control()
+    }
+}
+
+/**
+ * Wallpaper sync (SID-180). These rows are the post-consent home of the choice the one-time modal
+ * asks: whether the launcher keeps the system and/or lock wallpaper rendered to the current theme.
+ * Both default off and only the modal's Approve or these rows ever turn them on — flipping one on
+ * here is the "changed my mind" path, and takes effect on the next mood evaluation without a
+ * relaunch (the home observes both flags).
+ */
+@Composable
+private fun WallpaperSection(settings: SettingsStore, fg: Color, accent: Color) {
+    val syncHome by settings.wallpaperSyncHomeAsState()
+    val syncLock by settings.wallpaperSyncLockAsState()
+    Column(Modifier.fillMaxWidth()) {
+        SettingRow(label = "Home wallpaper", fg = fg) {
+            Segmented(
+                options = listOf("Off" to false, "On" to true),
+                selected = syncHome,
+                fg = fg,
+                accent = accent,
+                onSelect = { settings.wallpaperSyncHome = it },
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        SettingRow(label = "Lock wallpaper", fg = fg) {
+            Segmented(
+                options = listOf("Off" to false, "On" to true),
+                selected = syncLock,
+                fg = fg,
+                accent = accent,
+                onSelect = { settings.wallpaperSyncLock = it },
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = "Keeps the system wallpaper matched to the theme, so leaving an app never " +
+                "flashes an old background.",
+            color = fg.copy(alpha = 0.85f),
+            fontSize = 13.sp,
+            lineHeight = 17.sp,
+        )
     }
 }
 

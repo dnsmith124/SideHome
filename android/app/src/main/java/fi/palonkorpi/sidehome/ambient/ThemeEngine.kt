@@ -24,9 +24,13 @@ import fi.palonkorpi.sidehome.color.hexToLch
  *                    engine-bounded so no seed can go illegible or muddy (DECISIONS: text/accent stay
  *                    auto-derived from the resulting mood).
  *
- * The Photo theme (SPEC.md §6) is deliberately out of scope here — see SID-43.
+ *  6. [PHOTO]      — a user image as the backdrop (SID-43). The mood swaps source entirely: it is
+ *                    *extracted from the image* (average OKLab of the picked photo), frozen all day
+ *                    like Full-light/dark — a photo is a fixed backdrop. Ink and accent still derive
+ *                    from the mood, so §6's "everything auto-derived" rule holds; the backdrop itself
+ *                    is the pre-baked bitmap pair the ui layer paints (see PhotoBake), not the sky.
  */
-enum class Theme { AMBIENT, FULL_LIGHT, FULL_DARK, EDGE_DARK, CUSTOM }
+enum class Theme { AMBIENT, FULL_LIGHT, FULL_DARK, EDGE_DARK, CUSTOM, PHOTO }
 
 /** The theme's human label, shown under its tile in the zoom-out chooser. */
 val Theme.displayName: String
@@ -36,6 +40,7 @@ val Theme.displayName: String
         Theme.FULL_DARK -> "Full dark"
         Theme.EDGE_DARK -> "Edge"
         Theme.CUSTOM -> "Custom"
+        Theme.PHOTO -> "Photo"
     }
 
 /** The Custom theme's default seed hue (degrees), until the user picks one. A warm amber, clearly
@@ -141,8 +146,13 @@ fun themeMood(
     customSat: Float = DEFAULT_CUSTOM_SAT,
     customDrift: Boolean = DEFAULT_CUSTOM_DRIFT,
     keyframes: ThemeKeyframes = ThemeKeyframes.Default,
+    photoMood: Lch? = null,
 ): Lch = when (theme) {
     Theme.AMBIENT -> solarMood
+    // Photo (SID-43): the image-derived mood, frozen — a photo is a fixed backdrop, so its ink and
+    // accent are too. Null until a photo has been picked and baked; falling back to the live solar
+    // mood keeps a Photo commit without a photo rendering as the ambient rather than a surprise.
+    Theme.PHOTO -> photoMood ?: solarMood
     Theme.FULL_LIGHT -> keyframes.light
     Theme.FULL_DARK -> keyframes.dark
     // Edge: the live drifting sky, its lightness capped below full daytime brightness (so the thin
@@ -179,7 +189,7 @@ fun themeMood(
 fun driftEnabled(theme: Theme, customDrift: Boolean = DEFAULT_CUSTOM_DRIFT): Boolean = when (theme) {
     Theme.AMBIENT, Theme.EDGE_DARK -> true
     Theme.CUSTOM -> customDrift
-    Theme.FULL_LIGHT, Theme.FULL_DARK -> false
+    Theme.FULL_LIGHT, Theme.FULL_DARK, Theme.PHOTO -> false
 }
 
 /** Whether the ambient is painted as an edge glow fading to a dark centre (theme 4 only). */

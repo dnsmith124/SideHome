@@ -17,10 +17,12 @@ class OverlayLadderTest {
 
     @Test fun `each overlay in isolation pops itself`() {
         assertEquals(BackStep.Coach, backStep(OverlayStack(coach = true)))
+        assertEquals(BackStep.WallpaperConsent, backStep(OverlayStack(wallpaperConsent = true)))
         assertEquals(BackStep.ConfirmRemoveFolder, backStep(OverlayStack(confirmRemoveFolder = true)))
         assertEquals(BackStep.Hand, backStep(OverlayStack(hand = true)))
         assertEquals(BackStep.IconPicker, backStep(OverlayStack(iconPicker = true)))
         assertEquals(BackStep.CategoryPicker, backStep(OverlayStack(categoryPicker = true)))
+        assertEquals(BackStep.PhotoPositioner, backStep(OverlayStack(photoPositioner = true)))
         assertEquals(BackStep.FolderIcon, backStep(OverlayStack(folderIcon = true)))
         assertEquals(BackStep.Rename, backStep(OverlayStack(rename = true)))
         assertEquals(BackStep.Strip, backStep(OverlayStack(strip = true)))
@@ -48,6 +50,16 @@ class OverlayLadderTest {
         assertEquals(
             BackStep.Coach,
             backStep(OverlayStack(coach = true, folder = true, drawerActive = true, strip = true)),
+        )
+    }
+
+    @Test fun `the wallpaper consent is a question like the confirm modal`() {
+        // Back answers the safe answer over anything beneath it — Back must never be the press that
+        // overwrites a wallpaper. (The host only raises it once the coach is down, so the coach rung
+        // above it never actually contends.)
+        assertEquals(
+            BackStep.WallpaperConsent,
+            backStep(OverlayStack(wallpaperConsent = true, drawerActive = true, folder = true)),
         )
     }
 
@@ -96,6 +108,8 @@ class OverlayLadderTest {
             OverlayStack(rename = true),
             OverlayStack(debug = true),
             OverlayStack(themeChooser = true),
+            OverlayStack(wallpaperConsent = true),
+            OverlayStack(photoPositioner = true),
         ).forEach { assertEquals(KeyRoute.ModalGlobalsOnly, keyRoute(it)) }
     }
 
@@ -118,6 +132,7 @@ class OverlayLadderTest {
             OverlayStack(debug = true),
             OverlayStack(hand = true),
             OverlayStack(futureComposer = true),
+            OverlayStack(photoPositioner = true),
         ).forEach { assertTrue("$it should detach", detachesArbiter(it)) }
     }
 
@@ -127,6 +142,7 @@ class OverlayLadderTest {
         listOf(
             OverlayStack(drawerActive = true),
             OverlayStack(confirmRemoveFolder = true),
+            OverlayStack(wallpaperConsent = true),
             OverlayStack(themeChooser = true),
             OverlayStack(coach = true),
             OverlayStack(spotlightEngaged = true),
@@ -170,6 +186,8 @@ class OverlayLadderTest {
             OverlayStack(hand = true),
             OverlayStack(themeChooser = true),
             OverlayStack(confirmRemoveFolder = true),
+            OverlayStack(wallpaperConsent = true),
+            OverlayStack(photoPositioner = true),
         ).forEach { assertFalse("$it should block open", canOpenDrawerFromBare(it)) }
     }
 

@@ -1,6 +1,7 @@
 package fi.palonkorpi.sidehome.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -38,8 +39,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -93,6 +96,9 @@ fun ThemeChooser(
     onCustomSat: (Float) -> Unit,
     customDrift: Boolean,
     onCustomDrift: (Boolean) -> Unit,
+    photoMood: Lch?,
+    photoPreview: ImageBitmap?,
+    onChoosePhoto: () -> Unit,
     solarMood: Lch,
     timeStr: String,
     screenAspect: Float,
@@ -184,8 +190,12 @@ fun ThemeChooser(
 
                 ThemeTile(
                     theme = theme,
-                    mood = themeMood(theme, solarMood, customHueRadians(customHue), customSat, customDrift),
+                    mood = themeMood(
+                        theme, solarMood, customHueRadians(customHue), customSat, customDrift,
+                        photoMood = photoMood,
+                    ),
                     edgeOnly = edgeOnly(theme),
+                    photo = if (theme == Theme.PHOTO) photoPreview else null,
                     isCurrent = theme == currentTheme,
                     accent = accent,
                     timeStr = timeStr,
@@ -217,6 +227,9 @@ fun ThemeChooser(
             Spacer(Modifier.height(10.dp))
             CustomizationSlot(
                 isCustom = focused == Theme.CUSTOM,
+                isPhoto = focused == Theme.PHOTO,
+                photoPicked = photoPreview != null,
+                onChoosePhoto = onChoosePhoto,
                 hue = customHue,
                 onHue = onCustomHue,
                 sat = customSat,
@@ -264,6 +277,7 @@ private fun ThemeTile(
     accent: Color,
     timeStr: String,
     modifier: Modifier = Modifier,
+    photo: ImageBitmap? = null,
 ) {
     // The tile's own foreground ink, chosen the same way the home does — so the preview also shows
     // how each theme adapts its text. Edge-dark sits over a dark centre, so it always inks light.
@@ -282,12 +296,24 @@ private fun ThemeTile(
             // copy, so DECISIONS' no-muted rule doesn't bind it.
             .border(TILE_BORDER, Color.White.copy(alpha = 0.20f), RoundedCornerShape(TILE_CORNER)),
     ) {
-        AmbientBackground(
-            mood = mood,
-            edgeOnly = edgeOnly,
-            hueSpread = fieldHueSpread(theme),
-            modifier = Modifier.fillMaxSize(),
-        )
+        // The Photo tile previews the crisp bake itself — the truest possible preview, and the sky
+        // renderer never runs for it. Before a photo is picked it falls through to the ambient (its
+        // mood fallback), so the tile is never a black hole.
+        if (photo != null) {
+            Image(
+                bitmap = photo,
+                contentDescription = null,
+                contentScale = ContentScale.FillBounds,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            AmbientBackground(
+                mood = mood,
+                edgeOnly = edgeOnly,
+                hueSpread = fieldHueSpread(theme),
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
 
         // A mock of the home — no real favourites, no real date, no second render — but a
         // *geometrically* exact one: every value is [HomeMetrics] times [TILE_WIDTH_FRACTION],
@@ -420,6 +446,9 @@ private fun PreviewRow(tileFg: Color) {
 @Composable
 private fun CustomizationSlot(
     isCustom: Boolean,
+    isPhoto: Boolean,
+    photoPicked: Boolean,
+    onChoosePhoto: () -> Unit,
     hue: Float,
     onHue: (Float) -> Unit,
     sat: Float,
@@ -438,6 +467,32 @@ private fun CustomizationSlot(
                 customBaseColor(customHueRadians(deg.toFloat()), sat).toColor()
             },
         )
+    }
+    // The Photo theme's one control (SID-43): pick the image. Sized exactly like the cushion so
+    // the slot never jumps between pages; a labelled surface rather than a wordless fill because
+    // this one *is* an action, and DECISIONS' no-muted rule is met with full-strength ink.
+    if (isPhoto) {
+        Box(
+            Modifier
+                .fillMaxWidth(0.72f)
+                .height(34.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(fg.copy(alpha = 0.10f))
+                .clickable(onClick = onChoosePhoto),
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                LineIcon(glyph = "photo", color = fg, size = 16.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (photoPicked) "Change image" else "Choose image",
+                    color = fg,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
+        return
     }
     if (!isCustom) {
         Box(

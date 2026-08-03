@@ -47,9 +47,12 @@ object WeatherApi {
     fun forecastUrl(lat: Double, lon: Double): String =
         "https://api.open-meteo.com/v1/forecast" +
             "?latitude=$lat&longitude=$lon" +
-            "&current=temperature_2m,weather_code" +
-            "&hourly=temperature_2m,weather_code,precipitation_probability" +
+            "&current=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m" +
+            ",apparent_temperature" +
+            "&hourly=temperature_2m,weather_code,precipitation_probability,wind_speed_10m,wind_direction_10m" +
             "&daily=weather_code,temperature_2m_max,temperature_2m_min" +
+            ",sunrise,sunset,precipitation_probability_max,uv_index_max" +
+            "&minutely_15=precipitation" +
             "&timezone=auto&timeformat=unixtime&forecast_days=$FORECAST_DAYS"
 
     /** Blocking. Call from [kotlinx.coroutines.Dispatchers.IO] — [WeatherStore] is the only caller. */
@@ -72,6 +75,7 @@ object WeatherApi {
         val current = root.optJSONObject("current") ?: return null
         val hourly = root.optJSONObject("hourly")
         val daily = root.optJSONObject("daily")
+        val minutely = root.optJSONObject("minutely_15")
         buildForecast(
             place = place,
             utcOffsetSeconds = root.optInt("utc_offset_seconds", 0),
@@ -87,6 +91,20 @@ object WeatherApi {
             dailyMaxC = doubles(daily, "temperature_2m_max"),
             dailyMinC = doubles(daily, "temperature_2m_min"),
             fetchedAtMillis = fetchedAtMillis,
+            // Wind (SID-184): NaN / -1 when the column is missing, and the wind line simply
+            // doesn't render — never a dash pretending to be a measurement.
+            nowWindKmh = current.optDouble("wind_speed_10m", Double.NaN),
+            nowGustKmh = current.optDouble("wind_gusts_10m", Double.NaN),
+            nowWindDirDeg = current.optInt("wind_direction_10m", -1),
+            hourlyWindKmh = doubles(hourly, "wind_speed_10m"),
+            hourlyWindDir = ints(hourly, "wind_direction_10m"),
+            nowFeelsC = current.optDouble("apparent_temperature", Double.NaN),
+            dailySunrise = longs(daily, "sunrise"),
+            dailySunset = longs(daily, "sunset"),
+            dailyPrecipProbMax = ints(daily, "precipitation_probability_max"),
+            dailyUvMax = doubles(daily, "uv_index_max"),
+            quarterTime = longs(minutely, "time"),
+            quarterPrecip = doubles(minutely, "precipitation"),
         )
     }.getOrNull()
 

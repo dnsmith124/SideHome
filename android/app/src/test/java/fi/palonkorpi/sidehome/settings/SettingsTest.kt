@@ -15,8 +15,9 @@ class SettingsTest {
     }
 
     @Test fun theme_unknownValueFallsBackToAmbient() {
-        // a value written by a future build (or a corrupt pref) must not throw — it defaults
-        assertEquals(Theme.AMBIENT, themeFromPref("PHOTO"))
+        // a value written by a future build (or a corrupt pref) must not throw — it defaults.
+        // ("PHOTO" used to sit here as the future-name example; it became a real theme in v1.1.)
+        assertEquals(Theme.AMBIENT, themeFromPref("DISCO"))
         assertEquals(Theme.AMBIENT, themeFromPref(""))
     }
 

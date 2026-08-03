@@ -463,4 +463,157 @@ class WeatherTest {
         assertEquals("Uusimaa", regionLabel("Uusimaa", null))
         assertEquals("", regionLabel(null, null))
     }
+
+    // ---- wind (SID-184) --------------------------------------------------------------------
+
+    @Test fun `the compass rose reads whence the wind blows, in eight winds`() {
+        assertEquals("N", compassLabel(0))
+        assertEquals("N", compassLabel(360))
+        assertEquals("NE", compassLabel(45))
+        assertEquals("E", compassLabel(90))
+        assertEquals("SE", compassLabel(135))
+        assertEquals("S", compassLabel(180))
+        assertEquals("SW", compassLabel(225))
+        assertEquals("W", compassLabel(270))
+        assertEquals("NW", compassLabel(315))
+        // sector edges: 337.5° is where NW hands over to N
+        assertEquals("NW", compassLabel(337))
+        assertEquals("N", compassLabel(338))
+        assertNull(compassLabel(-1))
+    }
+
+    @Test fun `a plain wind says direction and speed, and nothing about gusts`() {
+        assertEquals("NW 24 km/h", windLine(speedKmh = 24.3, gustKmh = 30.0, dirDeg = 315))
+    }
+
+    @Test fun `gusts appear only when they would surprise you`() {
+        // the Wellington case: the gust figure earns its place when it stands well above the
+        // sustained speed, and stays quiet when it is the same number said twice
+        assertEquals(
+            "NW 32 km/h, gusts 58",
+            windLine(speedKmh = 32.0, gustKmh = 58.0, dirDeg = 315),
+        )
+        assertEquals(
+            "NW 32 km/h",
+            windLine(speedKmh = 32.0, gustKmh = 32.0 + GUST_MENTION_DELTA_KMH - 1, dirDeg = 315),
+        )
+    }
+
+    @Test fun `an unknown direction is omitted, not guessed`() {
+        assertEquals("12 km/h", windLine(speedKmh = 12.0, gustKmh = Double.NaN, dirDeg = -1))
+    }
+
+    @Test fun `no wind in the feed means no line at all`() {
+        // NaN speed = the column was missing; a pane that says "— km/h" would be worse than silence
+        assertNull(windLine(speedKmh = Double.NaN, gustKmh = 40.0, dirDeg = 90))
+    }
+
+    @Test fun `an hourly cell says its wind at the tightest — letter and number, no unit`() {
+        assertEquals("NW 18", windCellLabel(windKmh = 18.2, dirDeg = 315))
+        assertEquals("7", windCellLabel(windKmh = 7.0, dirDeg = -1))   // unknown direction: number alone
+        assertNull(windCellLabel(windKmh = Double.NaN, dirDeg = 90))   // no hourly wind: no line
+    }
+
+    // ---- feels-like, sun, odds, UV (the v1.1 second pass) ------------------------------------
+
+    @Test fun `feels-like speaks only when it would surprise you`() {
+        assertEquals("feels -12°", feelsLine(nowC = -7.0, feelsC = -12.4, unit = TempUnit.CELSIUS))
+        assertNull(feelsLine(nowC = 20.0, feelsC = 21.0, unit = TempUnit.CELSIUS))   // same number twice
+        assertNull(feelsLine(nowC = 20.0, feelsC = Double.NaN, unit = TempUnit.CELSIUS))
+    }
+
+    @Test fun `the sun line says rise and set in the user's clock`() {
+        // 05:12 and 21:48 UTC at offset 0
+        assertEquals(
+            "↑ 05:12   ↓ 21:48",
+            sunLine(sunriseSec = 18_720L, sunsetSec = 78_480L, utcOffsetSeconds = 0, format = ClockFormat.H24),
+        )
+        assertNull(sunLine(sunriseSec = 0L, sunsetSec = 78_480L, utcOffsetSeconds = 0, format = ClockFormat.H24))
+    }
+
+    @Test fun `the week strip says a rain chance only when it is worth planning around`() {
+        assertEquals("60%", weekProbLabel(60))
+        assertNull(weekProbLabel(WEEK_PROB_THRESHOLD - 1))
+        assertNull(weekProbLabel(-1))
+    }
+
+    @Test fun `uv is mentioned from moderate up`() {
+        assertEquals("UV 6", uvLabel(5.7))
+        assertNull(uvLabel(2.9))
+        assertNull(uvLabel(Double.NaN))
+    }
+
+    @Test fun `the expanded day says what it knows and nothing it does not`() {
+        val day = DayPoint(0L, 3, 18.0, 9.0, precipProbMaxPct = 60, uvMax = 5.7)
+        assertEquals("rain 60% · UV 6", dayFactsLine(day))
+        // The detail answers any known chance — opening the day is asking — but stays silent on
+        // the unknown.
+        assertEquals("rain 10%", dayFactsLine(day.copy(precipProbMaxPct = 10, uvMax = Double.NaN)))
+        assertNull(dayFactsLine(DayPoint(0L, 3, 18.0, 9.0)))
+    }
+
+    // ---- the next hour at quarter grain ------------------------------------------------------
+
+    private fun quarters(vararg mm: Double): List<QuarterPoint> =
+        mm.mapIndexed { i, v -> QuarterPoint(1000L + (i + 1) * 900L, v) }
+
+    @Test fun `dry now with rain coming names the minutes`() {
+        // quarters at +15/+30/+45/+60 min; rain begins on the third
+        assertEquals("rain in ~45 min", nextHourLine(quarters(0.0, 0.0, 0.8, 1.2), nowEpochSec = 1000L))
+    }
+
+    @Test fun `raining with an end in sight names the easing`() {
+        // wet at +15/+30, dry from +45 on
+        assertEquals("rain easing in ~45 min", nextHourLine(quarters(1.2, 0.8, 0.0, 0.0), nowEpochSec = 1000L))
+    }
+
+    @Test fun `a dry quarter inside a shower is not the rain ending`() {
+        assertEquals("rain for the next hour", nextHourLine(quarters(1.2, 0.0, 0.8, 1.0), nowEpochSec = 1000L))
+    }
+
+    @Test fun `a calm dry hour says nothing at all`() {
+        assertNull(nextHourLine(quarters(0.0, 0.0, 0.0, 0.0), nowEpochSec = 1000L))
+        assertNull(nextHourLine(emptyList(), nowEpochSec = 1000L))
+    }
+
+    // ---- the expanded day's mini strip -------------------------------------------------------
+
+    @Test fun `the day strip walks the waking hours at three-hour steps`() {
+        val day = 86_400L * 100   // some local midnight at offset 0
+        val hours = (0 until 24).map { HourPoint(day + it * 3600L, it.toDouble(), 1, 0) }
+        val strip = dayStrip(hours, day, utcOffsetSeconds = 0)
+        assertEquals(listOf(6.0, 9.0, 12.0, 15.0, 18.0, 21.0), strip.map { it.tempC })
+    }
+
+    @Test fun `the day strip never borrows a neighbouring day's hours`() {
+        val day = 86_400L * 100
+        val hours = listOf(
+            HourPoint(day - 3 * 3600L, -1.0, 1, 0),        // yesterday evening
+            HourPoint(day + 12 * 3600L, 12.0, 1, 0),       // this noon
+            HourPoint(day + 86_400L + 12 * 3600L, 99.0, 1, 0),   // tomorrow noon
+        )
+        assertEquals(listOf(12.0), dayStrip(hours, day, 0).map { it.tempC })
+    }
+
+    // ---- the quarters' cache diet ------------------------------------------------------------
+
+    @Test fun `buildForecast keeps only the near quarters`() {
+        val now = 1_000_000L
+        val f = buildForecast(
+            place = Place("X", 0.0, 0.0),
+            utcOffsetSeconds = 0,
+            nowTimeSec = now,
+            nowTempC = 10.0,
+            nowCode = 1,
+            hourlyTime = emptyList(), hourlyTempC = emptyList(),
+            hourlyCode = emptyList(), hourlyPrecipProb = emptyList(),
+            dailyTime = emptyList(), dailyCode = emptyList(),
+            dailyMaxC = emptyList(), dailyMinC = emptyList(),
+            fetchedAtMillis = 0L,
+            quarterTime = listOf(now - 3600L, now + 900L, now + QUARTER_HORIZON_SEC, now + QUARTER_HORIZON_SEC + 900L),
+            quarterPrecip = listOf(1.0, 2.0, 3.0, 4.0),
+        )
+        // An hour ago and past the horizon both fall away; the near ones survive.
+        assertEquals(listOf(2.0, 3.0), f.quarters.map { it.precipMm })
+    }
 }

@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fi.palonkorpi.sidehome.settings.SettingsStore
 import fi.palonkorpi.sidehome.settings.tempUnitAsState
+import fi.palonkorpi.sidehome.settings.weatherEnabledAsState
 import fi.palonkorpi.sidehome.settings.weatherPlaceAsState
 import fi.palonkorpi.sidehome.weather.Forecast
 import fi.palonkorpi.sidehome.weather.Place
@@ -119,6 +120,9 @@ fun GlanceWeather(fg: Color, modifier: Modifier = Modifier) {
     val settings = remember(context.applicationContext) { SettingsStore(context) }
     val place by settings.weatherPlaceAsState()
     val unit by settings.tempUnitAsState()
+    // SID-181: weather off removes the line entirely (zero nodes, like the no-cache case) — and
+    // gates the refresh below, so an off switch also means no fetches.
+    val weatherOn by settings.weatherEnabledAsState()
 
     // Refresh on reveal (SID-64 follow-up): the home is a view of the weather too, so a stale cache
     // refetches when the home comes forward — the same on-view rule the Future pane follows, and still
@@ -126,8 +130,8 @@ fun GlanceWeather(fg: Color, modifier: Modifier = Modifier) {
     // key(enterTick) block), so this fires once per reveal; refreshIfNeeded no-ops while the cache is
     // fresh and single-flights against the pane through the shared store's mutex. Only fetches when
     // there's a place and the cache is actually stale for it.
-    LaunchedEffect(place) {
-        place?.let { store.refreshIfNeeded(it) }
+    LaunchedEffect(place, weatherOn) {
+        if (weatherOn) place?.let { store.refreshIfNeeded(it) }
     }
 
     // "Now" is read once per forecast, not ticked: the only thing time decides here is staleness, and
@@ -136,6 +140,7 @@ fun GlanceWeather(fg: Color, modifier: Modifier = Modifier) {
     // which is when a cache going stale actually matters. Same idiom as FuturePane.
     val nowMillis = remember(forecast) { System.currentTimeMillis() }
 
+    if (!weatherOn) return
     val temp = glanceTemp(forecast, place, unit, nowMillis) ?: return
     val code = forecast?.nowCode ?: return
 

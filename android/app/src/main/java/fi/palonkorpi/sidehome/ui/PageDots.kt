@@ -98,6 +98,7 @@ internal fun PageDots(
     pagePosition: () -> Float,
     fg: Color,
     modifier: Modifier = Modifier,
+    lastPage: Int = FUTURE_PAGE,
 ) {
     Canvas(
         modifier
@@ -105,8 +106,9 @@ internal fun PageDots(
             .padding(top = DotsTopGap)
             .size(
                 // Derived from the navigable pages rather than a literal count, so disabling Past
-                // (or adding a place) never leaves a dead dot drawn under an unreachable pane.
-                width = DotRadius * 2 + DotSpacing * (FUTURE_PAGE - FIRST_PAGE),
+                // — or Future, via [lastPage] (SID-181) — never leaves a dead dot drawn under an
+                // unreachable pane.
+                width = DotRadius * 2 + DotSpacing * (lastPage - FIRST_PAGE),
                 height = DotRadius * 2,
             ),
     ) {
@@ -116,7 +118,7 @@ internal fun PageDots(
         val pos = pagePosition()
         // [pos] and [i] are absolute page indices (Home = 1), but the dots draw from the navigable
         // first page, so the x-offset is measured from [FIRST_PAGE].
-        for (i in FIRST_PAGE..FUTURE_PAGE) {
+        for (i in FIRST_PAGE..lastPage) {
             drawCircle(
                 color = fg,
                 radius = r,

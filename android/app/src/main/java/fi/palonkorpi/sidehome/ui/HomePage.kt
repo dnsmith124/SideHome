@@ -29,10 +29,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.text.TextStyle as UiTextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -138,6 +140,10 @@ internal fun HomePage(
     handIndex: Int?,
     selectedIndex: Int? = null,
     showIndexNumbers: Boolean = false,
+    // On the photo theme the labels stand on photo detail, not a flat sky, so each carries a soft
+    // halo in the ink's opposite ground (SID-43) — the same trick the positioner ghost uses. Null
+    // on the mood themes: the sky guarantees contrast there, and a shadow would read as grime.
+    labelHalo: Color? = null,
     onOpenDebug: () -> Unit,
     onClockClick: () -> Unit = {},
     onLongPressBackground: () -> Unit = {},
@@ -282,6 +288,7 @@ internal fun HomePage(
                                 fg = fg,
                                 tuning = tuning,
                                 enter = rowEnter,
+                                halo = labelHalo,
                                 lifted = handIndex == i,
                                 selected = selectedIndex == i,
                                 indexBadge = if (showIndexNumbers && i < 9) i + 1 else null,
@@ -300,6 +307,7 @@ internal fun HomePage(
                             fg = fg,
                             tuning = tuning,
                             enter = rowEnter,
+                            halo = labelHalo,
                             chevron = true,
                             lifted = handIndex == i,
                             selected = selectedIndex == i,
@@ -352,6 +360,7 @@ private fun HomeRow(
     onDrop: () -> Unit,
     onBounds: (Rect) -> Unit,
     enter: Modifier = Modifier,
+    halo: Color? = null,
     chevron: Boolean = false,
     lifted: Boolean = false,
     selected: Boolean = false,
@@ -400,7 +409,16 @@ private fun HomeRow(
         // matching keypad key to launch — rides between the label and the chevron instead.
         LineIcon(glyph = glyph, color = fg, size = HomeMetrics.RowIcon, badge = badge)
         Spacer(Modifier.width(HomeMetrics.RowGap))
-        Text(text = label, color = fg, fontSize = HomeMetrics.RowLabelSp.sp)
+        Text(
+            text = label,
+            color = fg,
+            fontSize = HomeMetrics.RowLabelSp.sp,
+            style = if (halo != null) {
+                UiTextStyle(shadow = Shadow(color = halo, blurRadius = 7f))
+            } else {
+                UiTextStyle.Default
+            },
+        )
         if (indexBadge != null) {
             Spacer(Modifier.width(10.dp))
             Text(
