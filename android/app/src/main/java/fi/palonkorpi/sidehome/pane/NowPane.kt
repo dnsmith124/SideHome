@@ -54,6 +54,22 @@ fun NowPane(
     visible: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    Column(
+        modifier
+            .fillMaxSize()
+            .padding(start = 32.dp, end = 32.dp, top = 40.dp, bottom = 44.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        NowBlock(settings = settings, fg = fg, visible = visible)
+    }
+}
+
+/**
+ * The Now page's content without its page: the hour's word and the lines. Shared by [NowPane] and
+ * the combined page, which stacks it over the notes.
+ */
+@Composable
+fun NowBlock(settings: SettingsStore, fg: Color, visible: Boolean) {
     val context = LocalContext.current
     val clockFormat by settings.clockFormatAsState()
     val weatherEnabled by settings.weatherEnabledAsState()
@@ -87,24 +103,17 @@ fun NowPane(
         sunLine(today.sunriseSec, today.sunsetSec, sun.utcOffsetSeconds, clockFormat)
     } else null
 
-    Column(
-        modifier
-            .fillMaxSize()
-            .padding(start = 32.dp, end = 32.dp, top = 40.dp, bottom = 44.dp),
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            dayPhase(local.hour),
-            color = fg,
-            fontFamily = Inter,
-            fontSize = 44.sp,
-            fontWeight = FontWeight.Light,
-        )
-        Spacer(Modifier.height(18.dp))
-        listOfNotNull(daylight, sunTimes, battery, alarm).forEach { line ->
-            Text(line, color = fg, fontFamily = Inter, fontSize = 19.sp)
-            Spacer(Modifier.height(10.dp))
-        }
+    Text(
+        dayPhase(local.hour),
+        color = fg,
+        fontFamily = Inter,
+        fontSize = 44.sp,
+        fontWeight = FontWeight.Light,
+    )
+    Spacer(Modifier.height(18.dp))
+    listOfNotNull(daylight, sunTimes, battery, alarm).forEach { line ->
+        Text(line, color = fg, fontFamily = Inter, fontSize = 19.sp)
+        Spacer(Modifier.height(10.dp))
     }
 }
 

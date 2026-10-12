@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -107,9 +108,17 @@ private fun PeekCluster(apps: List<AppEntry>, fg: Color, iconSize: Dp, gap: Dp) 
     }
 }
 
-/** One real app icon — the shared [AppIcon], tinting its still-loading / unloadable placeholder to
- *  sit quietly inside the bubble fill. */
+/** One app's mark in the live [IconStyle]: the real icon (the shared [AppIcon], its placeholder
+ *  tinted to sit quietly inside the bubble fill) or the line glyph, a touch smaller in its slot. */
 @Composable
 private fun PeekIcon(app: AppEntry, fg: Color, size: Dp) {
-    AppIcon(packageName = app.packageName, size = size, placeholder = fg.copy(alpha = 0.10f))
+    when (LocalIconStyle.current) {
+        IconStyle.GLYPH -> Box(Modifier.size(size), contentAlignment = Alignment.Center) {
+            LineIcon(glyph = app.glyph, color = fg, size = size * 0.78f, strokeWidthUnits = 1.6f)
+        }
+        IconStyle.REAL -> AppIcon(packageName = app.packageName, size = size, placeholder = fg.copy(alpha = 0.10f))
+        IconStyle.MONO -> AppIcon(packageName = app.packageName, size = size, placeholder = fg.copy(alpha = 0.10f), mono = true)
+        // No icons anywhere means the bubble is its label alone; the slot keeps the grid's shape.
+        IconStyle.NONE -> Spacer(Modifier.size(size))
+    }
 }

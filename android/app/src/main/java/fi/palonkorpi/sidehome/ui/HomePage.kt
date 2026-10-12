@@ -288,6 +288,7 @@ internal fun HomePage(
                         is AppItem -> appsByKey[item.key]?.let { app ->
                             HomeRow(
                                 glyph = glyphFor(app),
+                                packageName = app.packageName,
                                 label = app.label,
                                 fg = fg,
                                 tuning = tuning,
@@ -351,6 +352,7 @@ internal fun HomePage(
 private fun HomeRow(
     glyph: String,
     label: String,
+    packageName: String? = null,
     fg: Color,
     tuning: GestureTuning,
     onClick: () -> Unit,
@@ -400,8 +402,7 @@ private fun HomeRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // The icon leads, so its left edge lines up with the clock and date above it.
-        LineIcon(glyph = glyph, color = fg, size = HomeMetrics.RowIcon, badge = badge)
-        Spacer(Modifier.width(HomeMetrics.RowGap))
+        RowMark(packageName = packageName, glyph = glyph, color = fg, size = HomeMetrics.RowIcon, gap = HomeMetrics.RowGap, badge = badge)
         Text(
             text = label,
             color = fg,

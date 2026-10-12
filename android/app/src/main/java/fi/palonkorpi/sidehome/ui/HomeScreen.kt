@@ -106,6 +106,7 @@ import fi.palonkorpi.sidehome.nav.homeKeyAction
 import fi.palonkorpi.sidehome.nav.shouldFireCascade
 import fi.palonkorpi.sidehome.pane.LeftPane
 import fi.palonkorpi.sidehome.pane.NotesPane
+import fi.palonkorpi.sidehome.pane.NowAndNotesPane
 import fi.palonkorpi.sidehome.pane.NowPane
 import fi.palonkorpi.sidehome.photo.BAKE_STYLE_VERSION
 import fi.palonkorpi.sidehome.photo.PhotoBake
@@ -116,6 +117,7 @@ import fi.palonkorpi.sidehome.settings.customHueAsState
 import fi.palonkorpi.sidehome.settings.customSatAsState
 import fi.palonkorpi.sidehome.settings.drawerListFirstAsState
 import fi.palonkorpi.sidehome.settings.formatClock
+import fi.palonkorpi.sidehome.settings.iconStyleAsState
 import fi.palonkorpi.sidehome.settings.leftPaneAsState
 import fi.palonkorpi.sidehome.settings.photoGenerationAsState
 import fi.palonkorpi.sidehome.settings.photoMoodAsState
@@ -185,6 +187,7 @@ fun SideHomeApp(
     val weatherPlace by settings.weatherPlaceAsState()   // its latitude casts the day-cycle (below)
     val weatherEnabled by settings.weatherEnabledAsState()   // SID-181: off disables Future outright
     val leftPane by settings.leftPaneAsState()   // Pixel Edition: what the left page holds, or OFF
+    val iconStyle by settings.iconStyleAsState()   // Pixel Edition: glyph, real icon, or greyscale
     val drawerListFirst by settings.drawerListFirstAsState()   // SID-182: library opens quiet
     val photoMoodPref by settings.photoMoodAsState()   // SID-43: the Photo theme's extracted mood
     val photoGeneration by settings.photoGenerationAsState()   // SID-43: bake cache key; 0 = none
@@ -1095,6 +1098,8 @@ fun SideHomeApp(
     CompositionLocalProvider(
         LocalTextStyle provides LocalTextStyle.current.copy(fontFamily = Inter),
         LocalIndication provides NoIndication,
+        // Pixel Edition: how every app is drawn, read once here for the whole tree.
+        LocalIconStyle provides iconStyle,
     ) {
         Box(
             Modifier
@@ -1259,6 +1264,14 @@ fun SideHomeApp(
                                 LeftPane.NOTES -> NotesPane(
                                     fg = fg,
                                     accent = accent,
+                                    onComposerOpenChange = { pastComposerOpen = it },
+                                    scrollState = pastPaneScroll,
+                                )
+                                LeftPane.BOTH -> NowAndNotesPane(
+                                    settings = settings,
+                                    fg = fg,
+                                    accent = accent,
+                                    visible = panes.pageIndex == PAST_PAGE,
                                     onComposerOpenChange = { pastComposerOpen = it },
                                     scrollState = pastPaneScroll,
                                 )

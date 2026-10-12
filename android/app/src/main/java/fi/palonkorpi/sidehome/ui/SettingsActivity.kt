@@ -54,6 +54,7 @@ import fi.palonkorpi.sidehome.settings.SettingsStore
 import fi.palonkorpi.sidehome.settings.clockFormatAsState
 import fi.palonkorpi.sidehome.pane.LeftPane
 import fi.palonkorpi.sidehome.settings.drawerListFirstAsState
+import fi.palonkorpi.sidehome.settings.iconStyleAsState
 import fi.palonkorpi.sidehome.settings.leftPaneAsState
 import fi.palonkorpi.sidehome.settings.notificationAccessStatus
 import fi.palonkorpi.sidehome.settings.wallpaperSyncHomeAsState
@@ -95,6 +96,7 @@ private fun SettingsScreen(settings: SettingsStore) {
     val clockFormat by settings.clockFormatAsState()
     val drawerListFirst by settings.drawerListFirstAsState()
     val leftPane by settings.leftPaneAsState()
+    val iconStyle by settings.iconStyleAsState()
 
     // SID-35's §4a location mirror. The composer *replaces* the settings column rather than floating
     // over it: this screen has no recede-by-blur machinery of its own, and a modal that just sat on
@@ -169,7 +171,12 @@ private fun SettingsScreen(settings: SettingsStore) {
                 // Pixel Edition: the left-hand page. Upstream shipped it disabled; here it is a choice.
                 SettingRow(label = "Left page", fg = fg) {
                     Segmented(
-                        options = listOf("Off" to LeftPane.OFF, "Now" to LeftPane.NOW, "Notes" to LeftPane.NOTES),
+                        options = listOf(
+                            "Off" to LeftPane.OFF,
+                            "Now" to LeftPane.NOW,
+                            "Notes" to LeftPane.NOTES,
+                            "Both" to LeftPane.BOTH,
+                        ),
                         selected = leftPane,
                         fg = fg,
                         accent = accent,
@@ -179,7 +186,33 @@ private fun SettingsScreen(settings: SettingsStore) {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "A swipe right from home. Now: the hour, the light left, your battery and next " +
-                        "alarm. Notes: a short list you keep — tap to tick, hold to remove.",
+                        "alarm. Notes: a short list you keep — tap to tick, hold to remove. Both: " +
+                        "one page with the notes under the now.",
+                    color = fg.copy(alpha = 0.85f),
+                    fontSize = 13.sp,
+                )
+
+                Spacer(Modifier.height(28.dp))
+                // Pixel Edition: how every app is drawn, launcher-wide.
+                SettingRow(label = "App icons", fg = fg) {
+                    Segmented(
+                        options = listOf(
+                            "Glyph" to IconStyle.GLYPH,
+                            "Icon" to IconStyle.REAL,
+                            "Mono" to IconStyle.MONO,
+                            "None" to IconStyle.NONE,
+                        ),
+                        selected = iconStyle,
+                        fg = fg,
+                        accent = accent,
+                        onSelect = { settings.iconStyle = it },
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Glyph: SideHome's line icon for each app. Icon: the app's own icon. Mono: the app's " +
+                        "own icon in greyscale. None: names alone. Applies on the home, in the library " +
+                        "and on the shelves.",
                     color = fg.copy(alpha = 0.85f),
                     fontSize = 13.sp,
                 )

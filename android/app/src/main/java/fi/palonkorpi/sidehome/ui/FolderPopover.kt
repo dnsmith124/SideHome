@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -78,11 +77,6 @@ import fi.palonkorpi.sidehome.gesture.GestureTuning
  * @param onMemberPickup a member's hold turning into a reorder carry (SID-94) — fired just before the
  *   carry begins so the host can take back down the strip the hold raised. No-op by default: only a
  *   home folder reorders, and only its call site raises a strip that needs clearing.
- * @param realIcons render each member as its **real** launcher icon rather than the line glyph. Off
- *   for home folders (line art is the home's language); on for a grouped-library bucket, whose closed
- *   bubble already peeks these same real icons — so drilling in that shows line glyphs instead read as
- *   a different set of apps. The badge still overlays either way. [glyphFor] is then unused, but stays
- *   required so the folder path is untouched.
  * @param onReorder when non-null, a member can be picked up (hold, then drag) and dropped into a new
  *   position, committed by the host as `(from, toGap)` — the folder's own `moveWithinFolder` grammar
  *   (SID-94), the same hold-then-drag the home rows use. Home folders pass it; a category bucket does
@@ -104,7 +98,6 @@ fun FolderPopover(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     onMemberPickup: () -> Unit = {},
-    realIcons: Boolean = false,
     onReorder: ((from: Int, toGap: Int) -> Unit)? = null,
 ) {
     val members = folder.appKeys.mapNotNull { appsByKey[it] }
@@ -180,7 +173,6 @@ fun FolderPopover(
                         MemberRow(
                             app = app,
                             glyph = glyphFor(app),
-                            realIcon = realIcons,
                             fg = fg,
                             tuning = tuning,
                             enter = rememberStaggeredEnter(index = i + 1),
@@ -252,12 +244,7 @@ fun FolderPopover(
                         .padding(horizontal = 6.dp, vertical = 11.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (realIcons) {
-                        AppIcon(packageName = c.app.packageName, size = MEMBER_ICON, placeholder = fg.copy(alpha = 0.12f))
-                    } else {
-                        LineIcon(glyph = c.glyph, color = fg, size = MEMBER_ICON, strokeWidthUnits = 1.7f)
-                    }
-                    Spacer(Modifier.width(15.dp))
+                    RowMark(packageName = c.app.packageName, glyph = c.glyph, color = fg, size = MEMBER_ICON, gap = 15.dp, strokeWidthUnits = 1.7f)
                     Text(c.app.label, color = fg, fontSize = 18.sp)
                 }
             }
@@ -299,18 +286,12 @@ private data class CarriedMember(val from: Int, val app: AppEntry, val glyph: St
  *  height whichever it draws. */
 private val MEMBER_ICON = 24.dp
 
-/** Real-icon badge diameter as a fraction of [MEMBER_ICON], picked to match the dot a line-glyph
- *  member carries (stroke 1.7 × [BadgeMetrics.DiameterStrokes] ≈ 5dp on a 24dp icon). The icon has no
- *  stroke to size it against, so it is anchored to the icon instead; the same [BadgeMetrics.Overhang]
- *  pokes it past the corner onto the sky where an accent dot reads against a busy icon. */
-private const val MEMBER_ICON_BADGE_FRACTION = 0.21f
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MemberRow(
     app: AppEntry,
     glyph: String,
-    realIcon: Boolean,
     fg: Color,
     tuning: GestureTuning,
     enter: Modifier,
@@ -357,33 +338,15 @@ private fun MemberRow(
             .padding(horizontal = 6.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (realIcon) {
-            // The bucket's real icon, so drilling in matches the bubble that peeked it. The badge is
-            // a Compose overlay for the same reason it is on a LineIcon — a sibling dot that fades and
-            // drifts with the accent independently of the icon it sits on.
-            Box(Modifier.size(MEMBER_ICON)) {
-                AppIcon(packageName = app.packageName, size = MEMBER_ICON, placeholder = fg.copy(alpha = 0.12f))
-                if (badge != null) {
-                    val diameter = MEMBER_ICON * MEMBER_ICON_BADGE_FRACTION
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .offset(x = diameter * BadgeMetrics.Overhang, y = -diameter * BadgeMetrics.Overhang)
-                            .size(diameter)
-                            .background(badge, CircleShape),
-                    )
-                }
-            }
-        } else {
-            LineIcon(
-                glyph = glyph,
-                color = fg,
-                size = MEMBER_ICON,
-                strokeWidthUnits = 1.7f,
-                badge = badge,
-            )
-        }
-        Spacer(Modifier.width(15.dp))
+        RowMark(
+            packageName = app.packageName,
+            glyph = glyph,
+            color = fg,
+            size = MEMBER_ICON,
+            gap = 15.dp,
+            strokeWidthUnits = 1.7f,
+            badge = badge,
+        )
         Text(app.label, color = fg, fontSize = 18.sp)
     }
 }

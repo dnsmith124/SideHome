@@ -1,5 +1,6 @@
 package fi.palonkorpi.sidehome.settings
 
+import fi.palonkorpi.sidehome.ui.IconStyle
 import fi.palonkorpi.sidehome.ambient.Theme
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -27,6 +28,14 @@ class SettingsTest {
         }
     }
 
+
+    @Test fun iconStyle_decodesByNameAndFallsBackToGlyph() {
+        assertEquals(IconStyle.REAL, iconStyleFromPref("REAL"))
+        assertEquals(IconStyle.MONO, iconStyleFromPref("MONO"))
+        assertEquals(IconStyle.NONE, iconStyleFromPref("NONE"))
+        assertEquals(IconStyle.GLYPH, iconStyleFromPref(null))
+        assertEquals(IconStyle.GLYPH, iconStyleFromPref("nonsense"))
+    }
 
     @Test fun h24_padsBothFields() {
         assertEquals("00:00", formatClock(0, 0, ClockFormat.H24))

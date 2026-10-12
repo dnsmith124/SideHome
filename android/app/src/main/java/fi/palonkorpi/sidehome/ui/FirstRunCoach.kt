@@ -88,6 +88,7 @@ internal fun coachLines(weatherEnabled: Boolean, leftPane: LeftPane = LeftPane.O
         when (leftPane) {
             LeftPane.NOW -> add(CoachLine(CHEVRON_RIGHT, "now"))
             LeftPane.NOTES -> add(CoachLine(CHEVRON_RIGHT, "notes"))
+            LeftPane.BOTH -> add(CoachLine(CHEVRON_RIGHT, "now & notes"))
             LeftPane.OFF -> {}
         }
     }

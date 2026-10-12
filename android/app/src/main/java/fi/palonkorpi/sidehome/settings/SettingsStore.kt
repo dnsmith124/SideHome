@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import fi.palonkorpi.sidehome.ambient.DEFAULT_CUSTOM_DRIFT
 import fi.palonkorpi.sidehome.pane.LeftPane
+import fi.palonkorpi.sidehome.ui.IconStyle
 import fi.palonkorpi.sidehome.pane.leftPaneFromPref
 import fi.palonkorpi.sidehome.pane.toPref
 import fi.palonkorpi.sidehome.ambient.DEFAULT_CUSTOM_HUE_DEG
@@ -126,6 +127,11 @@ class SettingsStore(context: Context) {
     var leftPane: LeftPane
         get() = leftPaneFromPref(prefs.getString(KEY_LEFT_PANE, null))
         set(value) = prefs.edit().putString(KEY_LEFT_PANE, value.toPref()).apply()
+
+    /** How every app is drawn (Pixel Edition): line glyph, real icon, or greyscale icon. Glyph by default. */
+    var iconStyle: IconStyle
+        get() = iconStyleFromPref(prefs.getString(KEY_ICON_STYLE, null))
+        set(value) = prefs.edit().putString(KEY_ICON_STYLE, value.name).apply()
 
     /**
      * The library opens as a quiet list instead of search-first (SID-182). On by default: a touch
@@ -265,6 +271,7 @@ class SettingsStore(context: Context) {
         const val KEY_DRAWER_LIST_FIRST = "drawer_list_first"
         const val KEY_WEATHER_ENABLED = "weather_enabled"
         const val KEY_LEFT_PANE = "left_pane"
+        const val KEY_ICON_STYLE = "icon_style"
         const val KEY_WALLPAPER_HOME = "wallpaper_home"
         const val KEY_WALLPAPER_LOCK = "wallpaper_lock"
         const val KEY_WALLPAPER_CONSENT = "wallpaper_consent"
@@ -472,6 +479,22 @@ fun SettingsStore.weatherEnabledAsState(): State<Boolean> {
     DisposableEffect(this) {
         state.value = weatherEnabled
         val handle = addChangeListener { state.value = weatherEnabled }
+        onDispose { handle.close() }
+    }
+    return state
+}
+
+/** Decode a persisted icon style by name; absent or unknown falls back to the line glyph. */
+fun iconStyleFromPref(raw: String?): IconStyle =
+    raw?.let { name -> IconStyle.entries.firstOrNull { it.name == name } } ?: IconStyle.GLYPH
+
+/** Observe [SettingsStore.iconStyle] as Compose [State], like [weatherEnabledAsState]. */
+@Composable
+fun SettingsStore.iconStyleAsState(): State<IconStyle> {
+    val state = remember(this) { mutableStateOf(iconStyle) }
+    DisposableEffect(this) {
+        state.value = iconStyle
+        val handle = addChangeListener { state.value = iconStyle }
         onDispose { handle.close() }
     }
     return state

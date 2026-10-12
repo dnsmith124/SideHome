@@ -3,6 +3,7 @@ package fi.palonkorpi.sidehome.pane
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -10,6 +11,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import fi.palonkorpi.sidehome.settings.SettingsStore
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -63,7 +66,6 @@ import fi.palonkorpi.sidehome.ui.LineIcon
  * Deliberately no alarms, no times, no notifications: a reminder here is a line you will see the
  * next time you swipe to it. That is the whole feature, and it needs no permission.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NotesPane(
     fg: Color,
@@ -74,7 +76,51 @@ fun NotesPane(
     scrollState: ScrollState = rememberScrollState(),
     modifier: Modifier = Modifier,
 ) {
-    val notes by store.notes.collectAsState()
+    NotesOrComposer(fg, accent, onComposerOpenChange, store, scrollState, modifier) {
+        NotesBlock(fg = fg, accent = accent, store = store, onAdd = it)
+    }
+}
+
+/**
+ * The combined left page ([fi.palonkorpi.sidehome.pane.LeftPane.BOTH]): the Now lines, then the
+ * notes, on one scrolling page. The composer replaces the whole page, as it does for Notes alone.
+ */
+@Composable
+fun NowAndNotesPane(
+    settings: SettingsStore,
+    fg: Color,
+    accent: Color,
+    visible: Boolean,
+    onComposerOpenChange: (Boolean) -> Unit = {},
+    store: NotesStore = rememberNotesStore(),
+    scrollState: ScrollState = rememberScrollState(),
+    modifier: Modifier = Modifier,
+) {
+    NotesOrComposer(fg, accent, onComposerOpenChange, store, scrollState, modifier) {
+        NowBlock(settings = settings, fg = fg, visible = visible)
+        // The weather page's rule between its tiers: the one translucent thing on an ambient page.
+        Spacer(Modifier.height(16.dp))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(fg.copy(alpha = 0.14f)))
+        Spacer(Modifier.height(26.dp))
+        NotesBlock(fg = fg, accent = accent, store = store, onAdd = it)
+    }
+}
+
+/**
+ * The page scaffold the Notes and combined pages share: a centred, host-scrolled column of
+ * [content], or the note composer in its place while a note is being written. [content] receives
+ * the "open the composer" action to hand to its Add line.
+ */
+@Composable
+private fun NotesOrComposer(
+    fg: Color,
+    accent: Color,
+    onComposerOpenChange: (Boolean) -> Unit,
+    store: NotesStore,
+    scrollState: ScrollState,
+    modifier: Modifier,
+    content: @Composable ColumnScope.(onAdd: () -> Unit) -> Unit,
+) {
     var composerOpen by remember { mutableStateOf(false) }
 
     DisposableEffect(composerOpen) {
@@ -102,50 +148,59 @@ fun NotesPane(
                 .padding(start = 32.dp, end = 32.dp, top = 40.dp, bottom = 44.dp),
             verticalArrangement = Arrangement.Center,
         ) {
-            Text("Notes", color = fg, fontFamily = Inter, fontSize = 22.sp, fontWeight = FontWeight.Light)
-            Spacer(Modifier.height(14.dp))
-            notes.forEach { note ->
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .combinedClickable(
-                            onClick = { store.toggle(note.id) },
-                            onLongClick = { store.remove(note.id) },
-                        )
-                        .padding(vertical = 9.dp, horizontal = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // A ticked line wears the accent check; an open one a quiet ring.
-                    if (note.done) {
-                        LineIcon(glyph = "check", color = accent, size = 18.dp, strokeWidthUnits = 1.7f)
-                    } else {
-                        Box(Modifier.size(18.dp).padding(2.dp).border(1.5.dp, fg.copy(alpha = 0.7f), CircleShape))
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        note.text,
-                        color = fg.copy(alpha = if (note.done) 0.5f else 1f),
-                        fontFamily = Inter,
-                        fontSize = 18.sp,
-                        textDecoration = if (note.done) TextDecoration.LineThrough else null,
-                    )
-                }
+            content { composerOpen = true }
+        }
+    }
+}
+
+/** The notes list and its Add line, without a page of their own. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun NotesBlock(fg: Color, accent: Color, store: NotesStore, onAdd: () -> Unit) {
+    val notes by store.notes.collectAsState()
+    // The same weight the Now page gives its one big word, so the two read as peers on the Both page.
+    Text("Notes", color = fg, fontFamily = Inter, fontSize = 44.sp, fontWeight = FontWeight.Light)
+    Spacer(Modifier.height(18.dp))
+    notes.forEach { note ->
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .combinedClickable(
+                    onClick = { store.toggle(note.id) },
+                    onLongClick = { store.remove(note.id) },
+                )
+                .padding(vertical = 9.dp, horizontal = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // A ticked line wears the accent check; an open one a quiet ring.
+            if (note.done) {
+                LineIcon(glyph = "check", color = accent, size = 18.dp, strokeWidthUnits = 1.7f)
+            } else {
+                Box(Modifier.size(18.dp).padding(2.dp).border(1.5.dp, fg.copy(alpha = 0.7f), CircleShape))
             }
-            if (notes.isNotEmpty()) Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.width(12.dp))
             Text(
-                if (notes.isEmpty()) "Add a note" else "Add",
-                color = accent,
+                note.text,
+                color = fg.copy(alpha = if (note.done) 0.5f else 1f),
                 fontFamily = Inter,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { composerOpen = true }
-                    .padding(vertical = 6.dp, horizontal = 2.dp),
+                fontSize = 18.sp,
+                textDecoration = if (note.done) TextDecoration.LineThrough else null,
             )
         }
     }
+    if (notes.isNotEmpty()) Spacer(Modifier.height(8.dp))
+    Text(
+        if (notes.isEmpty()) "Add a note" else "Add",
+        color = accent,
+        fontFamily = Inter,
+        fontSize = 17.sp,
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { onAdd() }
+            .padding(vertical = 6.dp, horizontal = 2.dp),
+    )
 }
 
 @Composable

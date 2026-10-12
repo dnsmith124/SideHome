@@ -11,6 +11,7 @@ class LeftPaneTest {
     @Test fun `the pref decodes by name and falls back to Now`() {
         assertEquals(LeftPane.NOTES, leftPaneFromPref("NOTES"))
         assertEquals(LeftPane.OFF, leftPaneFromPref("OFF"))
+        assertEquals(LeftPane.BOTH, leftPaneFromPref("BOTH"))
         assertEquals(LeftPane.NOW, leftPaneFromPref(null))
         assertEquals(LeftPane.NOW, leftPaneFromPref("garbage"))
         assertEquals("NOTES", LeftPane.NOTES.toPref())

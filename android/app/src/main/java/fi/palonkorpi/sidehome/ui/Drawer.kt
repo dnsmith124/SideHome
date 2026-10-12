@@ -631,9 +631,6 @@ private fun CategoryPopover(
         // Every hold delegates to the host, which raises the library-app strip (Icon / Home / Category
         // / Info) — the right verbs for an app seen in the library, not the folder-member ones (SID-114).
         onMemberHold = onAppHold,
-        // The closed bubble peeks these apps' real icons; drilling in shows the same, so the popover
-        // reads as the bucket opening rather than a different, line-art set of apps.
-        realIcons = true,
     )
 }
 
@@ -701,7 +698,6 @@ private fun ShelfPopover(
         onDismiss = onDismiss,
         modifier = Modifier.fillMaxSize(),
         onMemberHold = onHold,
-        realIcons = true,
     )
 }
 
@@ -759,16 +755,17 @@ private fun DrawerAppRow(
             .padding(horizontal = 8.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        LineIcon(
+        // In-home apps render like any other library row — no accent mark (Oliver's call). The row
+        // still declines a pickup (it's already placed); it just no longer says so in colour.
+        RowMark(
+            packageName = app.packageName,
             glyph = app.glyph,
-            // In-home apps render like any other library row — no accent mark (Oliver's call). The
-            // row still declines a pickup (it's already placed); it just no longer says so in colour.
             color = fg,
             size = 24.dp,
+            gap = 15.dp,
             strokeWidthUnits = 1.6f,
             badge = badgeTint(badged, accent),
         )
-        Spacer(Modifier.width(15.dp))
         Text(
             text = app.label,
             color = fg,

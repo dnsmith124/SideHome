@@ -11,9 +11,10 @@ import java.util.Locale
  * What the left-hand page holds (Pixel Edition). Upstream shipped it disabled; here the user picks:
  *  - [NOW] — a quiet page about the present moment: the light, the battery, the next alarm.
  *  - [NOTES] — a short list you keep: a line of journal, a reminder to tick off.
+ *  - [BOTH] — the Now lines with the Notes list beneath them, on one page.
  *  - [OFF] — Home is the left end, exactly as upstream.
  */
-enum class LeftPane { OFF, NOW, NOTES }
+enum class LeftPane { OFF, NOW, NOTES, BOTH }
 
 /** Decode a persisted value; unknown or absent falls back to [LeftPane.NOW]. */
 fun leftPaneFromPref(raw: String?): LeftPane =

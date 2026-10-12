@@ -30,12 +30,15 @@ SideHome Pixel Edition is free software under the GNU GPL-3.0, like the original
     next alarm. Every line is absent unless it would tell you something.
   - **Notes** — a short list you keep: a line of journal, a reminder. Tap to tick it off, hold to
     remove it. No alarms, no notifications; a note is something you'll see the next time you swipe.
+  - **Both** — the Now lines with the notes beneath them, on one page.
 - **Hidden and Locked shelves.** Hold an app in the library and choose **Hide** or **Lock**. It leaves
   the list, the search, the bubbles and the home, and sits on a shelf at the foot of the library.
   Hidden opens on a tap. Locked opens only after Android's own screen-lock screen confirms your PIN,
   pattern or password — the launcher never sees it and keeps no secret of its own. Hold an app on a
   shelf to bring it back. To shelve several at once, tap the select button beside the search field,
   mark the apps, and use the bar at the foot of the list.
+- **Your choice of icons.** Settings → **App icons**: SideHome's line glyphs (the default), each app's
+  own icon, each app's own icon in greyscale, or no icons at all. It applies everywhere an app appears.
 - **Six themes.** Long-press an empty patch of home to zoom out and swipe through Ambient, Full light,
   Full dark, Edge, Custom (your own hue and saturation) and Photo (a picture of your own, framed
   against a live ghost of your home).
@@ -71,7 +74,7 @@ Press **Home** and choose **SideHome Pixel Edition** as your default launcher. I
 - **On first launch**, a one-time coach shows the swipes. It appears once and never again.
 - **Weather (optional):** swipe left and tap **"Set your location"** to type a city. Nothing is
   fetched until you do.
-- **Left page:** Settings → **Left page** → Off, Now or Notes.
+- **Left page:** Settings → **Left page** → Off, Now, Notes or Both.
 - **Notification dots (optional):** Settings → **Notification dots** → grant access on Android's own
   page.
 - **Wallpaper sync (optional):** the first time it could apply, the launcher asks once whether the

@@ -94,5 +94,6 @@ class FirstRunCoachTest {
         assertEquals(listOf("apps", "now"), coachLines(weatherEnabled = false, leftPane = LeftPane.NOW).map { it.label })
         assertEquals(listOf("apps", "weather", "notes"), coachLines(weatherEnabled = true, leftPane = LeftPane.NOTES).map { it.label })
         assertEquals(listOf("apps"), coachLines(weatherEnabled = false, leftPane = LeftPane.OFF).map { it.label })
+        assertEquals(listOf("apps", "now & notes"), coachLines(weatherEnabled = false, leftPane = LeftPane.BOTH).map { it.label })
     }
 }
