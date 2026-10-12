@@ -25,7 +25,7 @@ class ActionStripTest {
 
     // ---- the variants ------------------------------------------------------------------------
 
-    @Test fun `a library app offers change-icon, add-to-home, category, app-info`() {
+    @Test fun `a library app offers change-icon, add-to-home, category, hide, lock, app-info`() {
         // No Uninstall cell: it never resolved on the de-Googled ROM, so uninstall is handled through
         // Info (the app's system-details page) rather than a dead launcher cell.
         assertEquals(
@@ -33,10 +33,20 @@ class ActionStripTest {
                 StripAction.CHANGE_ICON,
                 StripAction.ADD_HOME,
                 StripAction.CATEGORY,
+                StripAction.HIDE,
+                StripAction.LOCK,
                 StripAction.APP_INFO,
             ),
             actions(ActionContext(ActionTarget.LIBRARY_APP)),
         )
+    }
+
+    @Test fun `a shelved app offers only the way back, and info`() {
+        assertEquals(listOf(StripAction.UNHIDE, StripAction.APP_INFO), actions(ActionContext(ActionTarget.SHELVED_HIDDEN)))
+        assertEquals(listOf(StripAction.UNLOCK, StripAction.APP_INFO), actions(ActionContext(ActionTarget.SHELVED_LOCKED)))
+        for (t in listOf(ActionTarget.SHELVED_HIDDEN, ActionTarget.SHELVED_LOCKED)) {
+            assertTrue("$t must not offer add-to-home", !actions(ActionContext(t)).contains(StripAction.ADD_HOME))
+        }
     }
 
     @Test fun `home app offers change-icon, add-to-folder, move, remove, app-info`() {

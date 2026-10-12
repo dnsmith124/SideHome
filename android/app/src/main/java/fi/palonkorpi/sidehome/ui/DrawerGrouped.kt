@@ -163,6 +163,8 @@ fun GroupedBrowse(
     onOpen: (CategoryBucket) -> Unit,
     modifier: Modifier = Modifier,
     accent: Color = fg,
+    // Drawn under the last row of bubbles, inside the same scroll: the shelf rows (Pixel Edition).
+    footer: @Composable () -> Unit = {},
 ) {
     Column(
         modifier = modifier
@@ -189,6 +191,7 @@ fun GroupedBrowse(
                 repeat(BUBBLES_PER_ROW - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
+        footer()
     }
 }
 

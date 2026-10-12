@@ -16,7 +16,7 @@ SideHome Pixel Edition is free software under the GNU GPL-3.0, like the original
 - **A day-following ambient sky.** The background is one continuous OKLCH colour field that tracks
   the sun for your location and drifts through dawn → day → dusk → night. Static between shifts, so
   an idle home costs almost nothing.
-- **A calm home page.** A large clock, the date with a one-line weather glance, and up to eight
+- **A calm home page.** A large clock, the date with a one-line weather glance, and up to ten
   favourites as a text-and-glyph list. Tap the clock to open the clock app.
 - **Direct-manipulation editing — no edit mode.** Long-press a favourite to pick it up and place it;
   drop one onto another to make a folder; drag it off to remove.
@@ -30,6 +30,12 @@ SideHome Pixel Edition is free software under the GNU GPL-3.0, like the original
     next alarm. Every line is absent unless it would tell you something.
   - **Notes** — a short list you keep: a line of journal, a reminder. Tap to tick it off, hold to
     remove it. No alarms, no notifications; a note is something you'll see the next time you swipe.
+- **Hidden and Locked shelves.** Hold an app in the library and choose **Hide** or **Lock**. It leaves
+  the list, the search, the bubbles and the home, and sits on a shelf at the foot of the library.
+  Hidden opens on a tap. Locked opens only after Android's own screen-lock screen confirms your PIN,
+  pattern or password — the launcher never sees it and keeps no secret of its own. Hold an app on a
+  shelf to bring it back. To shelve several at once, tap the select button beside the search field,
+  mark the apps, and use the bar at the foot of the list.
 - **Six themes.** Long-press an empty patch of home to zoom out and swipe through Ambient, Full light,
   Full dark, Edge, Custom (your own hue and saturation) and Photo (a picture of your own, framed
   against a live ghost of your home).
@@ -39,8 +45,10 @@ SideHome Pixel Edition is free software under the GNU GPL-3.0, like the original
 
 - Everything about the keypad is gone: hardware key navigation, the 1–9 quick-launch numbers, the
   D-pad hints and the SideType keyboard integration. This is a touch launcher.
-- The clock and date are larger and the home holds up to eight favourites, sized for a 6.3" screen.
+- The clock and date are larger and the home holds up to ten favourites, sized for a 6.3" screen.
 - The left page exists, with the Now and Notes pages above; upstream shipped it disabled.
+- The library has Hidden and Locked shelves; the long-press menu grew Hide and Lock cells, and a
+  select button beside the search field marks many apps for shelving at once.
 - The library opens quiet by default, so the keyboard doesn't rise over the list on every open.
 - Its own app id (`io.github.dnsmith124.sidehome`), so it installs beside upstream SideHome.
 
@@ -82,8 +90,9 @@ No tracking, no ads, no accounts. Exactly three permissions, each tied to a feat
   package names in memory and nothing else.
 
 The Now page reads the battery (a public sticky broadcast) and the next alarm (public to every app);
-neither needs a permission. Notes are stored in the launcher's own preferences on the phone and never
-leave it.
+neither needs a permission. Notes and the shelves are stored in the launcher's own preferences on the
+phone and never leave it. The Locked shelf asks the keyguard to confirm your screen lock, which needs
+no permission either.
 
 ## For developers
 

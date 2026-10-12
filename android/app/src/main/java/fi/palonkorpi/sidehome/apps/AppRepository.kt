@@ -112,6 +112,19 @@ class AppRepository(private val context: Context) {
 
     private fun glyphOverrides(): Map<String, String> = readKvSet(KEY_OVERRIDES)
 
+    /** The Hidden and Locked shelves (Pixel Edition), as two sets of app keys. */
+    fun shelves(): Shelves = Shelves(
+        hidden = prefs.getStringSet(KEY_HIDDEN, emptySet()).orEmpty().toSet(),
+        locked = prefs.getStringSet(KEY_LOCKED, emptySet()).orEmpty().toSet(),
+    )
+
+    fun saveShelves(shelves: Shelves) {
+        prefs.edit()
+            .putStringSet(KEY_HIDDEN, shelves.hidden)
+            .putStringSet(KEY_LOCKED, shelves.locked)
+            .apply()
+    }
+
     fun setOverride(entry: AppEntry, glyph: String) {
         val current = glyphOverrides().toMutableMap()
         current[entry.key] = glyph
@@ -294,6 +307,8 @@ class AppRepository(private val context: Context) {
 
     companion object {
         private const val KEY_OVERRIDES = "glyph_overrides"
+        private const val KEY_HIDDEN = "shelf_hidden"     // Pixel Edition: the Hidden shelf
+        private const val KEY_LOCKED = "shelf_locked"     // Pixel Edition: the Locked shelf
         private const val KEY_CATEGORY_OVERRIDES = "category_overrides"
         private const val KEY_USER_CATEGORIES = "user_categories"       // SID-61: user-made buckets
         private const val KEY_USER_CATEGORY_SEQ = "user_category_seq"   // monotonic id counter
@@ -301,8 +316,8 @@ class AppRepository(private val context: Context) {
         private const val KEY_HOME = "home_v2"
         private const val KEY_HOME_SANDBOX = "home_sandbox"   // dev-only scratch home
         private const val KEY_SANDBOX = "sandbox_mode"
-        /** The home's cap. Eight fits a Pixel 9 under the enlarged clock with room to breathe. */
-        const val MAX_HOME = 8
+        /** The home's cap. Ten rows fit a Pixel 9 under the enlarged clock. */
+        const val MAX_HOME = 10
 
         /** How many starter favourites a fresh install gets — a calm home, well under the cap. */
         const val STARTER_FAVOURITES = 4

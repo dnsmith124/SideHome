@@ -78,6 +78,12 @@ import fi.palonkorpi.sidehome.apps.moveWithinFolder
 import fi.palonkorpi.sidehome.apps.placedKeys
 import fi.palonkorpi.sidehome.apps.popFromFolder
 import fi.palonkorpi.sidehome.apps.pruneMissing
+import fi.palonkorpi.sidehome.apps.Shelf
+import fi.palonkorpi.sidehome.apps.Shelves
+import fi.palonkorpi.sidehome.apps.shelve
+import fi.palonkorpi.sidehome.apps.unshelvedKeys
+import fi.palonkorpi.sidehome.security.confirmDeviceCredentialIntent
+import fi.palonkorpi.sidehome.security.deviceIsSecure
 import fi.palonkorpi.sidehome.apps.removeFromFolder
 import fi.palonkorpi.sidehome.apps.removeIndex
 import fi.palonkorpi.sidehome.apps.renameFolder
@@ -186,6 +192,20 @@ fun SideHomeApp(
     var apps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
     val appsByKey = remember(apps) { apps.associateBy { it.key } }
     var home by remember { mutableStateOf<List<HomeItem>>(emptyList()) }
+    // Pixel Edition: the Hidden and Locked shelves. A shelved app leaves the library's list, search
+    // and bubbles — and the home, shelving prunes like an uninstall — and lives at the library's foot.
+    var shelves by remember { mutableStateOf(repo.shelves()) }
+    val shelved = remember(apps, shelves) { apps.shelve(shelves) }
+    // Which shelf is open inside the library, hoisted like [galleryBucket] so Back steps out of it.
+    var openShelf by remember { mutableStateOf<Shelf?>(null) }
+    // The library's multi-select (Pixel Edition): the keys marked so far, or null when not selecting.
+    // Hoisted so Back drops it; the drawer's own select button starts and ends it.
+    var librarySelection by remember { mutableStateOf<Set<String>?>(null) }
+    // The Locked shelf opens only on Android's say-so: the keyguard's own confirm-credential screen
+    // comes back RESULT_OK or nothing. The library stays open underneath while it is up.
+    val unlockShelf = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) openShelf = Shelf.LOCKED
+    }
 
     // Sandbox mode (dev): the home is reading a scratch key, so placement gestures can be tried on
     // throwaway tiles. Mirrors repo.sandbox rather than owning it — the repo's copy is the one that
@@ -200,20 +220,27 @@ fun SideHomeApp(
         repo.saveHome(new)
     }
 
+    // The one write path for the shelves. Shelving an app takes it off the home (and out of any
+    // folder, which auto-deletes if emptied) through the same prune an uninstall runs.
+    fun commitShelves(next: Shelves) {
+        shelves = next
+        repo.saveShelves(next)
+        commitHome(home.pruneMissing(apps.unshelvedKeys(next)))
+    }
+
     suspend fun reloadApps() {
         apps = withContext(Dispatchers.IO) { repo.loadApps() }
     }
 
     LaunchedEffect(sandbox) {
         if (apps.isEmpty()) reloadApps()
-        val byKey = apps.associateBy { it.key }
         home = if (repo.isFirstRun()) {
             defaultFavourites(apps).map { AppItem(it.key) as HomeItem }.also { repo.saveHome(it) }
         } else {
             // Drop apps that are no longer installed — and then any folder they emptied. Uninstalls
             // have to obey the same lifecycle rule as removals (SID-31), or a folder whose every
             // member is gone keeps a home slot as a dead tile that opens onto nothing.
-            repo.loadHome().pruneMissing(byKey.keys)
+            repo.loadHome().pruneMissing(apps.unshelvedKeys(shelves))
         }
     }
 
@@ -227,7 +254,7 @@ fun SideHomeApp(
     LaunchedEffect(packageChange) {
         if (packageChange <= 0) return@LaunchedEffect
         reloadApps()
-        commitHome(repo.loadHome().pruneMissing(apps.map { it.key }.toSet()))
+        commitHome(repo.loadHome().pruneMissing(apps.unshelvedKeys(shelves)))
     }
 
     // real clock — the display is only HH:mm, so we wake once per minute (at the minute
@@ -830,6 +857,7 @@ fun SideHomeApp(
                 // A member's icon change closes the folder it was held in, then opens the picker on
                 // the app — the picker floats over the bare home, not inside the receded folder.
                 is FolderMember -> { folderIndex = null; iconPickerFor = subject.app }
+                is ShelvedApp -> {}
             }
 
             StripAction.RENAME -> if (subject is HomeFolder) renameFolderAt = subject.index
@@ -856,7 +884,7 @@ fun SideHomeApp(
                         placement.takeFromLibrary(subject.app.key)
                     }
                 }
-                is HomeApp, is HomeFolder -> {}
+                is HomeApp, is HomeFolder, is ShelvedApp -> {}
             }
 
             // Add-to-folder is folder management (§1 D); Category (library apps only — the strip
@@ -871,7 +899,7 @@ fun SideHomeApp(
                 is HomeApp -> placement.take(subject.index)
                 is HomeFolder -> placement.take(subject.index)
                 // No Move cell on a member (it reorders in place, or moves to home via Add-to-home).
-                is LibraryApp, is FolderMember -> {}
+                is LibraryApp, is FolderMember, is ShelvedApp -> {}
             }
 
             // Removing an app from home is cheap and reversible — it is still in the library, one
@@ -890,8 +918,22 @@ fun SideHomeApp(
                     if (next.folderAt(subject.folderAt) == null) folderIndex = null
                     commitHome(next)
                 }
-                is LibraryApp -> {}
+                is LibraryApp, is ShelvedApp -> {}
             }
+
+            // Pixel Edition: onto a shelf, and back off it. Hide and Lock are offered on library apps
+            // only; Unhide and Unlock on the shelf's own apps. Locking needs a screen lock to hide
+            // behind — without one the shelf would be a lie, so it is refused with a word, not
+            // silently honoured.
+            StripAction.HIDE -> if (subject is LibraryApp) commitShelves(shelves.put(subject.app.key, Shelf.HIDDEN))
+            StripAction.LOCK -> if (subject is LibraryApp) {
+                if (deviceIsSecure(context)) {
+                    commitShelves(shelves.put(subject.app.key, Shelf.LOCKED))
+                } else {
+                    android.widget.Toast.makeText(context, "Set a screen lock to use Locked apps", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+            StripAction.UNHIDE, StripAction.UNLOCK -> if (subject is ShelvedApp) commitShelves(shelves.release(subject.app.key))
 
             // Info is now also the uninstall route: the app's system-details page carries the OS
             // Uninstall button, so the launcher no longer offers its own (dead) Uninstall cell.
@@ -899,6 +941,7 @@ fun SideHomeApp(
                 is LibraryApp -> openAppInfo(subject.app)
                 is HomeApp -> openAppInfo(subject.app)
                 is FolderMember -> openAppInfo(subject.app)
+                is ShelvedApp -> openAppInfo(subject.app)
                 is HomeFolder -> {}
             }
         }
@@ -928,7 +971,8 @@ fun SideHomeApp(
         futureComposer = futureComposerOpen || pastComposerOpen,
         folder = folderIndex != null,
         drawerActive = drawerActive,
-        galleryBucket = galleryBucket != null,
+        galleryBucket = galleryBucket != null || openShelf != null,
+        librarySelecting = librarySelection != null,
         spotlightEngaged = arbiterEnabled && spotlightFrac > 0.001f,
         panesOffCentre = arbiterEnabled && !panes.isCentered,
     )
@@ -958,7 +1002,8 @@ fun SideHomeApp(
             BackStep.Debug -> debugOpen = false
             // A drilled-in Gallery bucket steps out to the bubble grid first; only a second Back closes
             // the library (SID-96). Touch Back hits the drawer's own BackHandler, which does the same.
-            BackStep.GalleryBucket -> galleryBucket = null
+            BackStep.LibrarySelecting -> librarySelection = null
+            BackStep.GalleryBucket -> { galleryBucket = null; openShelf = null }
             BackStep.Drawer -> settleDrawer(0f)
             // Return-to-center: the residual (directionless) edge-Back and an explicit Back both
             // collapse the arbiter's surfaces toward the center home rather than jumping a pane.
@@ -988,6 +1033,9 @@ fun SideHomeApp(
         // A member's verbs are folder-membership lifecycle; none of them gate on the home count or on
         // being placed, so the ctx is bare (Add-to-home is never dimmed — see [actionsFor]).
         is FolderMember -> ActionContext(target = ActionTarget.FOLDER_MEMBER)
+        is ShelvedApp -> ActionContext(
+            target = if (subject.shelf == Shelf.HIDDEN) ActionTarget.SHELVED_HIDDEN else ActionTarget.SHELVED_LOCKED,
+        )
     }
 
     // A launcher must swallow Back / the edge-swipe gesture. If we only intercept while an overlay
@@ -1281,7 +1329,9 @@ fun SideHomeApp(
                     )
                 }
                 Drawer(
-                    apps = apps,
+                    apps = shelved.visible,
+                    hidden = shelved.hidden,
+                    locked = shelved.locked,
                     favouriteKeys = home.placedKeys(),
                     fg = fg,
                     accent = accent,
@@ -1294,6 +1344,34 @@ fun SideHomeApp(
                     // it, the same way folderIndex works for home folders.
                     openCategory = galleryBucket,
                     onOpenCategoryChange = { galleryBucket = it },
+                    // Pixel Edition: the shelves. Hidden opens on a tap; Locked opens only once
+                    // Android has confirmed the device credential (the prompt is the system's own).
+                    openShelf = openShelf,
+                    onOpenShelfChange = { openShelf = it },
+                    onRequestShelf = { shelf ->
+                        when (shelf) {
+                            Shelf.HIDDEN -> openShelf = Shelf.HIDDEN
+                            Shelf.LOCKED -> confirmDeviceCredentialIntent(
+                                context,
+                                title = "Locked apps",
+                                description = "Confirm your screen lock to open them",
+                            )?.let { unlockShelf.launch(it) }
+                        }
+                    },
+                    onShelfHold = { app, shelf, bounds -> stripFor = ShelvedApp(app, shelf, bounds) },
+                    // Multi-select (Pixel Edition): the drawer marks, the host shelves the marked set.
+                    selection = librarySelection,
+                    onSelectionChange = { librarySelection = it },
+                    barColor = menuColor,
+                    onShelveSelection = { shelf ->
+                        val keys = librarySelection.orEmpty()
+                        if (shelf == Shelf.LOCKED && !deviceIsSecure(context)) {
+                            android.widget.Toast.makeText(context, "Set a screen lock to use Locked apps", android.widget.Toast.LENGTH_SHORT).show()
+                        } else {
+                            commitShelves(keys.fold(shelves) { acc, key -> acc.put(key, shelf) })
+                            librarySelection = null
+                        }
+                    },
                     // SID-80: overlay first, then melt the library away under it — the full-screen
                     // feedback covers the drawer-close → bare-home flash the issue is about.
                     onLaunch = { launchApp(it); drawerFrac = 0f },

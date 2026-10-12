@@ -62,6 +62,12 @@ class OverlayLadderTest {
         )
     }
 
+    @Test fun `the library's multi-select pops before a bucket, and only while the drawer is up`() {
+        assertEquals(BackStep.LibrarySelecting, backStep(OverlayStack(drawerActive = true, librarySelecting = true)))
+        assertEquals(BackStep.LibrarySelecting, backStep(OverlayStack(drawerActive = true, librarySelecting = true, galleryBucket = true)))
+        assertEquals(BackStep.None, backStep(OverlayStack(librarySelecting = true)))
+    }
+
     @Test fun `a gallery bucket only pops while the drawer is up, and before the drawer closes`() {
         // Drilled-in bucket + drawer: Back steps out of the bucket first (SID-96).
         assertEquals(BackStep.GalleryBucket, backStep(OverlayStack(drawerActive = true, galleryBucket = true)))

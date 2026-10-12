@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import fi.palonkorpi.sidehome.apps.AppEntry
 import fi.palonkorpi.sidehome.apps.AppItem
 import fi.palonkorpi.sidehome.apps.FolderItem
+import fi.palonkorpi.sidehome.apps.Shelf
 import fi.palonkorpi.sidehome.apps.HomeItem
 import fi.palonkorpi.sidehome.gesture.GestureTuning
 import fi.palonkorpi.sidehome.settings.ClockFormat
@@ -114,6 +115,9 @@ internal data class HomeFolder(val index: Int, override val bounds: Rect) : Stri
 /** An app held inside an open folder (SID-31), addressed by which folder holds it — its strip's
  *  verbs ([ActionTarget.FOLDER_MEMBER]) are folder-membership lifecycle, not home placement. */
 internal data class FolderMember(val folderAt: Int, val app: AppEntry, override val bounds: Rect) : StripSubject
+
+/** An app held on the Hidden or Locked shelf (Pixel Edition) — its strip offers the way back. */
+internal data class ShelvedApp(val app: AppEntry, val shelf: Shelf, override val bounds: Rect) : StripSubject
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

@@ -40,6 +40,8 @@ data class OverlayStack(
     val drawerActive: Boolean = false,
     /** A drilled-in gallery bucket is open inside the drawer. */
     val galleryBucket: Boolean = false,
+    /** The library's multi-select is on (Pixel Edition): Back drops the selection before anything else. */
+    val librarySelecting: Boolean = false,
     /** Spotlight is off its rest *and* the arbiter is enabled (the host folds that guard in). */
     val spotlightEngaged: Boolean = false,
     /** The pager is off the centre home *and* the arbiter is enabled. */
@@ -63,6 +65,7 @@ enum class BackStep {
     Rename,
     Strip,
     Debug,
+    LibrarySelecting,
     GalleryBucket,
     Drawer,
     Spotlight,
@@ -140,6 +143,8 @@ private val LADDER: List<Overlay> = listOf(
     Overlay(present = { it.themeChooser }),
     // A drilled-in Gallery bucket steps out to the bubble grid before the drawer closes (SID-96). It is
     // only ever up *inside* the drawer, so the drawer rung below owns its detach.
+    // The library's multi-select (Pixel Edition) is a mode of the drawer: Back leaves it first.
+    Overlay(present = { it.drawerActive && it.librarySelecting }, back = BackStep.LibrarySelecting),
     Overlay(present = { it.drawerActive && it.galleryBucket }, back = BackStep.GalleryBucket),
     // The drawer keeps the arbiter attached (a down-swipe drives it closed).
     Overlay(

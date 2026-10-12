@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
@@ -53,11 +54,15 @@ import kotlin.math.roundToInt
  * held inside an open folder (SID-31): the folder's contents are managed in the same grammar as the
  * home's — hold the thing itself — so there is no edit surface to go to, here or anywhere.
  */
-enum class ActionTarget { LIBRARY_APP, HOME_APP, HOME_FOLDER, FOLDER_MEMBER }
+enum class ActionTarget {
+    LIBRARY_APP, HOME_APP, HOME_FOLDER, FOLDER_MEMBER,
+    /** An app held on the Hidden or Locked shelf (Pixel Edition): its verbs are shelf lifecycle. */
+    SHELVED_HIDDEN, SHELVED_LOCKED,
+}
 
 /**
- * One cell of the strip: a glyph over a tiny label. Labels are single words — five cells have to
- * stay one clean row on a 376dp-wide screen, and a wrapped label would break the row's height.
+ * One cell of the strip: a glyph over a tiny label. Labels are single words — six cells have to
+ * stay one clean row on a 411dp-wide screen, and a wrapped label would break the row's height.
  */
 enum class StripAction(val label: String, val glyph: String) {
     CHANGE_ICON("Icon", "pencil"),
@@ -68,10 +73,15 @@ enum class StripAction(val label: String, val glyph: String) {
     MOVE("Move", "pin"),
     REMOVE("Remove", "trash"),
     APP_INFO("Info", "settings"),
+    HIDE("Hide", "archive"),
+    LOCK("Lock", "lock"),
+    UNHIDE("Unhide", "archive"),
+    UNLOCK("Unlock", "lock"),
 }
 
-/** The strip is one row of side-by-side cells, so no variant may exceed this (SID-28). */
-const val MAX_STRIP_ACTIONS = 5
+/** The strip is one row of side-by-side cells, so no variant may exceed this (SID-28). The cells
+ *  shrink below their 64dp ideal when a row of them would not fit the screen's width. */
+const val MAX_STRIP_ACTIONS = 6
 
 /** An action as offered: the strip shows every cell of its variant, dimming the ones that can't run. */
 data class StripCell(val action: StripAction, val enabled: Boolean)
@@ -104,6 +114,19 @@ fun actionsFor(ctx: ActionContext): List<StripCell> = when (ctx.target) {
         StripCell(StripAction.CHANGE_ICON, true),
         StripCell(StripAction.ADD_HOME, !ctx.onHome),
         StripCell(StripAction.CATEGORY, true),
+        StripCell(StripAction.HIDE, true),
+        StripCell(StripAction.LOCK, true),
+        StripCell(StripAction.APP_INFO, true),
+    )
+
+    // An app on a shelf (Pixel Edition): the one verb that brings it back, and Info. No Add-to-home
+    // — a shelved app is off the home by definition; unshelve it first.
+    ActionTarget.SHELVED_HIDDEN -> listOf(
+        StripCell(StripAction.UNHIDE, true),
+        StripCell(StripAction.APP_INFO, true),
+    )
+    ActionTarget.SHELVED_LOCKED -> listOf(
+        StripCell(StripAction.UNLOCK, true),
         StripCell(StripAction.APP_INFO, true),
     )
 
@@ -183,6 +206,9 @@ private val STRIP_TOP_LIMIT = 36.dp
 
 private val STRIP_BOTTOM_MARGIN = 8.dp
 
+/** The least the strip keeps clear of each screen edge when its cells have to shrink to fit. */
+private val STRIP_SIDE_MARGIN = 10.dp
+
 /**
  * The §1 anchored action strip: a thin row of icon-over-label cells raised beside the item you are
  * holding. Replaces the pencil + EditSheet — editing is direct manipulation of the thing itself now.
@@ -208,6 +234,11 @@ fun ActionStrip(
             .pointerInput(Unit) { detectTapGestures { onDismiss() } },
     ) {
         val density = LocalDensity.current
+        // The ideal cell, or whatever share of the width keeps the row on screen with a margin —
+        // seven cells at 64dp would overrun a phone on a larger display-size setting.
+        val cellWidth = with(density) {
+            minOf(CELL_WIDTH.toPx(), (constraints.maxWidth - STRIP_SIDE_MARGIN.toPx() * 2) / cells.size.coerceAtLeast(1)).toDp()
+        }
         val y = with(density) {
             stripAnchorY(
                 itemTop = itemBounds.top,
@@ -235,6 +266,7 @@ fun ActionStrip(
                 StripCellView(
                     cell = cell,
                     fg = fg,
+                    width = cellWidth,
                     onClick = { onAction(cell.action) },
                 )
             }
@@ -246,6 +278,7 @@ fun ActionStrip(
 private fun StripCellView(
     cell: StripCell,
     fg: Color,
+    width: Dp,
     onClick: () -> Unit,
 ) {
     // Dimming marks a cell that can't run — a state, not text hierarchy; the enabled labels stay
@@ -253,7 +286,7 @@ private fun StripCellView(
     val a = if (cell.enabled) 1f else 0.35f
     Box(
         modifier = Modifier
-            .width(CELL_WIDTH)
+            .width(width)
             .fillMaxHeight()
             .clip(RoundedCornerShape(12.dp))
             .then(if (cell.enabled) Modifier.clickable { onClick() } else Modifier),
