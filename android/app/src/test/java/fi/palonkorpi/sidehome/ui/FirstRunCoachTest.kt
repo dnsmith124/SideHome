@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import fi.palonkorpi.sidehome.pane.LeftPane
 
 /**
  * Unit tests for the one-time first-run coach's whole contract (SID-27, SPEC §7): appears exactly
@@ -89,12 +90,9 @@ class FirstRunCoachTest {
         assertEquals(listOf("apps"), coachLines(weatherEnabled = false).map { it.label })
     }
 
-    @Test fun `a hardware tile adds the quick-launch row, as a badge not a chevron`() {
-        // SID-183: the 1–9 badges read as mystery counts until someone says otherwise; this is the
-        // someone. Touch-only devices never show the badges, so they are never coached about them.
-        val lines = coachLines(weatherEnabled = true, quickLaunch = true)
-        assertEquals(listOf("apps", "weather", "apps by number"), lines.map { it.label })
-        assertEquals("1–9", lines.last().badge)
-        assertEquals(listOf(null, null, "1–9"), lines.map { it.badge })
+    @Test fun `a left page adds its own swipe, named for what it holds`() {
+        assertEquals(listOf("apps", "now"), coachLines(weatherEnabled = false, leftPane = LeftPane.NOW).map { it.label })
+        assertEquals(listOf("apps", "weather", "notes"), coachLines(weatherEnabled = true, leftPane = LeftPane.NOTES).map { it.label })
+        assertEquals(listOf("apps"), coachLines(weatherEnabled = false, leftPane = LeftPane.OFF).map { it.label })
     }
 }

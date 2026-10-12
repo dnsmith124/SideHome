@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Bundle
-import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.mutableIntStateOf
@@ -72,14 +71,6 @@ class MainActivity : ComponentActivity() {
     // keyguard (SID-34). Drives the entrance cascade — the one honest "the home was hidden and is
     // now back" signal.
     private val appReveal = mutableIntStateOf(0)
-
-    // Hardware key-navigation (SID-81). The composition installs a handler here — dispatchKeyEvent is
-    // the first hook in Android's key path (the Activity is the Window.Callback, called before the view
-    // hierarchy and the IME), which is exactly why consuming a key here can beat the predictive IME to
-    // it (the double-Enter fix, SID-91). Null while nothing is installed, so key-nav simply passes
-    // through until the Compose layer is up.
-    @Volatile
-    var keyEventHandler: ((KeyEvent) -> Boolean)? = null
 
     // Set in onStop(): the launcher went fully behind something (another app / recents / lock).
     // Consumed by the next reveal trigger so the cascade replays. We key off onStop, not onResume,
@@ -280,14 +271,6 @@ class MainActivity : ComponentActivity() {
         unregisterReceiver(timeResyncReceiver)
         wasBackgrounded = true
         packagesStale = true
-    }
-
-    // Every hardware key passes here first. Offer it to the key-nav handler; if it claims the key
-    // (returns true) it never reaches the view hierarchy or the IME, otherwise the default path runs
-    // and the key types / acts as usual. A true no-op when nothing is installed or key-nav is off.
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (keyEventHandler?.invoke(event) == true) return true
-        return super.dispatchKeyEvent(event)
     }
 
     override fun onNewIntent(intent: Intent) {

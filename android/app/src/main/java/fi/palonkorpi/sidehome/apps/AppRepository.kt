@@ -301,7 +301,11 @@ class AppRepository(private val context: Context) {
         private const val KEY_HOME = "home_v2"
         private const val KEY_HOME_SANDBOX = "home_sandbox"   // dev-only scratch home
         private const val KEY_SANDBOX = "sandbox_mode"
-        const val MAX_HOME = 4
+        /** The home's cap. Eight fits a Pixel 9 under the enlarged clock with room to breathe. */
+        const val MAX_HOME = 8
+
+        /** How many starter favourites a fresh install gets — a calm home, well under the cap. */
+        const val STARTER_FAVOURITES = 4
 
         /**
          * Intent app-role → bucket, in priority order (an app declaring several
@@ -334,8 +338,8 @@ fun defaultFavourites(all: List<AppEntry>): List<AppEntry> {
     val picked = LinkedHashSet<AppEntry>()
     for (g in wanted) all.firstOrNull { it.glyph == g }?.let { picked.add(it) }
     for (a in all) {
-        if (picked.size >= AppRepository.MAX_HOME) break
+        if (picked.size >= AppRepository.STARTER_FAVOURITES) break
         picked.add(a)
     }
-    return picked.take(AppRepository.MAX_HOME)
+    return picked.take(AppRepository.STARTER_FAVOURITES)
 }

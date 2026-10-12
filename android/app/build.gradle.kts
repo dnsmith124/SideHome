@@ -25,11 +25,14 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "fi.palonkorpi.sidehome"
-        minSdk = 31          // Sidephone SP-01 = Android 12 / API 31
+        // SideHome Pixel Edition: its own app id, so it never collides with upstream SideHome. The
+        // Kotlin namespace stays `fi.palonkorpi.sidehome` on purpose — it is the one thing that keeps
+        // merges from upstream cheap, and nothing user-visible reads it.
+        applicationId = "io.github.dnsmith124.sidehome"
+        minSdk = 31
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 1
+        versionName = "1.0"
     }
 
     signingConfigs {
@@ -44,7 +47,14 @@ android {
     }
 
     buildTypes {
+        // The debug build installs beside a release build (its own app id and label), so a
+        // development copy never has to replace the launcher you are actually living on.
+        debug {
+            applicationIdSuffix = ".debug"
+            resValue("string", "app_name", "SideHome PE dev")
+        }
         release {
+            resValue("string", "app_name", "SideHome Pixel Edition")
             isMinifyEnabled = false
             // Real key when keystore.properties is present; debug key otherwise, so the release
             // variant stays installable for perf testing. Check which one you got before publishing:
@@ -68,6 +78,7 @@ android {
 
     buildFeatures {
         compose = true
+        resValues = true
     }
 }
 

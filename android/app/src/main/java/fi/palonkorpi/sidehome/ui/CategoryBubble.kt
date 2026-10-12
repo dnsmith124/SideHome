@@ -1,7 +1,6 @@
 package fi.palonkorpi.sidehome.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -41,7 +40,6 @@ import fi.palonkorpi.sidehome.apps.AppEntry
 /** Bubble geometry. All tune-on-device numbers — change them here, nowhere else. */
 private val BUBBLE_CORNER = 26.dp
 private val BUBBLE_FILL_ALPHA = 0.07f
-private val BUBBLE_FILL_ALPHA_SELECTED = 0.14f
 
 /** The peek cluster's icon and gap, as fractions of the tile — so the cluster holds its proportions
  *  whatever width the row hands the bubble (two-up on a wide screen, three-up when packed) instead of
@@ -57,10 +55,6 @@ fun CategoryBubble(
     onOpen: () -> Unit,
     modifier: Modifier = Modifier,
     accent: Color = fg,
-    // The key-nav browse cursor (SID-96): the App Gallery arrives in D-pad mode with the first bubble
-    // marked, so this is shown from the start rather than only on rocking. A firmer fill plus an accent
-    // ring — the launcher's mark for "this one", the same accent every selected glyph wears.
-    selected: Boolean = false,
 ) {
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         BoxWithConstraints(
@@ -70,11 +64,7 @@ fun CategoryBubble(
                 // screen instead of carrying a hardcoded size that only holds at 376dp.
                 .aspectRatio(1f)
                 .clip(RoundedCornerShape(BUBBLE_CORNER))
-                .background(fg.copy(alpha = if (selected) BUBBLE_FILL_ALPHA_SELECTED else BUBBLE_FILL_ALPHA))
-                .then(
-                    if (selected) Modifier.border(2.dp, accent.copy(alpha = 0.85f), RoundedCornerShape(BUBBLE_CORNER))
-                    else Modifier
-                )
+                .background(fg.copy(alpha = BUBBLE_FILL_ALPHA))
                 // No ripple: LocalIndication is NoIndication at the launcher root.
                 .clickable { onOpen() },
             contentAlignment = Alignment.Center,

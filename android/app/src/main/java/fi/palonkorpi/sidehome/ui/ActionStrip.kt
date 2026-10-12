@@ -97,9 +97,9 @@ data class ActionContext(
  * for Move on a home of one.
  */
 fun actionsFor(ctx: ActionContext): List<StripCell> = when (ctx.target) {
-    // No Uninstall cell: the OS's own PackageInstaller dialog didn't resolve on the de-Googled SP-01,
-    // so the launcher hands uninstall off to Info instead — the app's system-details page, which
-    // always resolves and carries its own Uninstall button.
+    // No Uninstall cell (inherited from upstream, where the installer dialog didn't resolve on a
+    // de-Googled ROM): the launcher hands uninstall off to Info instead — the app's system-details
+    // page, which always resolves and carries its own Uninstall button.
     ActionTarget.LIBRARY_APP -> listOf(
         StripCell(StripAction.CHANGE_ICON, true),
         StripCell(StripAction.ADD_HOME, !ctx.onHome),
@@ -200,8 +200,6 @@ fun ActionStrip(
     onAction: (StripAction) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
-    selectedIndex: Int? = null,
-    showIndexNumbers: Boolean = false,
 ) {
     val enter = rememberOverlayEnter(riseDp = 8f)
     BoxWithConstraints(
@@ -233,12 +231,10 @@ fun ActionStrip(
                 .padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            cells.forEachIndexed { index, cell ->
+            cells.forEach { cell ->
                 StripCellView(
                     cell = cell,
                     fg = fg,
-                    selected = index == selectedIndex,
-                    indexBadge = if (showIndexNumbers && index < 9) index + 1 else null,
                     onClick = { onAction(cell.action) },
                 )
             }
@@ -251,8 +247,6 @@ private fun StripCellView(
     cell: StripCell,
     fg: Color,
     onClick: () -> Unit,
-    selected: Boolean = false,
-    indexBadge: Int? = null,
 ) {
     // Dimming marks a cell that can't run — a state, not text hierarchy; the enabled labels stay
     // full-strength fg (DECISIONS).
@@ -262,8 +256,6 @@ private fun StripCellView(
             .width(CELL_WIDTH)
             .fillMaxHeight()
             .clip(RoundedCornerShape(12.dp))
-            // The key-nav cursor (SID-84): a quiet fg-tinted fill, only ever set by key.
-            .then(if (selected) Modifier.background(fg.copy(alpha = 0.14f)) else Modifier)
             .then(if (cell.enabled) Modifier.clickable { onClick() } else Modifier),
     ) {
         Column(
@@ -275,22 +267,13 @@ private fun StripCellView(
             Spacer(Modifier.height(5.dp))
             Text(cell.action.label, color = fg.copy(alpha = a), fontSize = 11.sp, maxLines = 1)
         }
-        // Faint direct-index number (SID-82) in the corner, so pressing that number fires the cell.
-        if (indexBadge != null) {
-            Text(
-                "$indexBadge",
-                color = fg.copy(alpha = 0.4f),
-                fontSize = 9.sp,
-                modifier = Modifier.align(Alignment.TopStart).padding(start = 5.dp, top = 3.dp),
-            )
-        }
     }
 }
 
 /**
  * Folder rename, raised by the strip's Rename cell. A real [BasicTextField], so it types through
- * the active IME (JakeType) on every input config rather than reading raw key codes — the same
- * reason the drawer's search migrated (SID-21).
+ * the active IME rather than reading raw key codes — the same reason the drawer's search migrated
+ * (SID-21).
  */
 @Composable
 fun RenamePopover(

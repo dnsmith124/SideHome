@@ -68,21 +68,23 @@ import java.util.Locale
  * real date, no second render — the same skeleton at the same scale.
  */
 internal object HomeMetrics {
+    // Sized for a Pixel 9 (411×923 dp): the clock and date are the home's reason to exist, so they
+    // take the width a tall phone offers; the rows grow a notch so they keep their proportion to it.
     val PadStart = 32.dp
     val PadEnd = 28.dp
     val PadTop = 40.dp
     val PadBottom = 44.dp
-    const val ClockSp = 78f
-    const val DateSp = 17f
-    val ClockDateGap = 10.dp
-    val DateRowsGap = 22.dp
-    val RowIcon = 25.dp
+    const val ClockSp = 112f
+    const val DateSp = 24f
+    val ClockDateGap = 6.dp
+    val DateRowsGap = 34.dp
+    val RowIcon = 27.dp
     val RowGap = 16.dp
     val RowPadH = 8.dp
-    val RowPadV = 9.dp
-    const val RowLabelSp = 19f
+    val RowPadV = 10.dp
+    const val RowLabelSp = 21f
 
-    /** The home caps at 4 items (DECISIONS), so a full mock is four rows. */
+    /** A picker tile mocks a typical home: the starter favourites, not the cap. */
     const val MockRows = 4
 
     /** Roughly what a Text's default line height comes to as a multiple of its size. Only the
@@ -135,11 +137,9 @@ internal fun HomePage(
     onItemDrag: (Offset) -> Unit,
     onItemDrop: () -> Unit,
     // SID-112: rows report their bounds straight into the one shared registry; the arbiter, the
-    // long-press gate below, placement, and the key-nav strip anchor all read it — no private copies.
+    // long-press gate below, and placement all read it — no private copies.
     homeItems: HomeItemBounds,
     handIndex: Int?,
-    selectedIndex: Int? = null,
-    showIndexNumbers: Boolean = false,
     // On the photo theme the labels stand on photo detail, not a flat sky, so each carries a soft
     // halo in the ink's opposite ground (SID-43) — the same trick the positioner ghost uses. Null
     // on the mood themes: the sky guarantees contrast there, and a shadow would read as grime.
@@ -290,8 +290,6 @@ internal fun HomePage(
                                 enter = rowEnter,
                                 halo = labelHalo,
                                 lifted = handIndex == i,
-                                selected = selectedIndex == i,
-                                indexBadge = if (showIndexNumbers && i < 9) i + 1 else null,
                                 badge = badgeTint(isBadged(app, badgedPackages), accent),
                                 onClick = { onLaunch(app) },
                                 onHold = { bounds -> onItemHold(HomeApp(app, i, bounds)) },
@@ -310,8 +308,6 @@ internal fun HomePage(
                             halo = labelHalo,
                             chevron = true,
                             lifted = handIndex == i,
-                            selected = selectedIndex == i,
-                            indexBadge = if (showIndexNumbers && i < 9) i + 1 else null,
                             // One dot for the whole folder if any member is lit — never a count,
                             // never per-member pips. Which app it is, is what opening it tells you.
                             badge = badgeTint(folderIsBadged(item, appsByKey, badgedPackages), accent),
@@ -363,8 +359,6 @@ private fun HomeRow(
     halo: Color? = null,
     chevron: Boolean = false,
     lifted: Boolean = false,
-    selected: Boolean = false,
-    indexBadge: Int? = null,
     badge: Color? = null,
 ) {
     // The strip anchors its Y beside the row that raised it, and the drop layer hit-tests against
@@ -379,9 +373,6 @@ private fun HomeRow(
             // forever, for a row that is opaque 99% of the time (see Anim.kt).
             .then(if (lifted) Modifier.graphicsLayer { alpha = 0.3f } else Modifier)
             .clip(RoundedCornerShape(11.dp))
-            // The key-nav cursor's home (SID-84): a quiet fg-tinted fill, clipped to the row's
-            // rounded shape. Only ever set when navigating by key — touch never lights it.
-            .then(if (selected) Modifier.background(fg.copy(alpha = 0.12f)) else Modifier)
             .onGloballyPositioned {
                 // onGloballyPositioned re-fires on every layout pass; only report real movement, or
                 // the drop layer's derived targets invalidate in a loop.
@@ -404,9 +395,7 @@ private fun HomeRow(
             .padding(horizontal = HomeMetrics.RowPadH, vertical = HomeMetrics.RowPadV),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // The icon leads, so its left edge lines up with the clock and date above it rather than
-        // being indented by the index column. The faint direct-index number (SID-82) — press the
-        // matching keypad key to launch — rides between the label and the chevron instead.
+        // The icon leads, so its left edge lines up with the clock and date above it.
         LineIcon(glyph = glyph, color = fg, size = HomeMetrics.RowIcon, badge = badge)
         Spacer(Modifier.width(HomeMetrics.RowGap))
         Text(
@@ -419,14 +408,6 @@ private fun HomeRow(
                 UiTextStyle.Default
             },
         )
-        if (indexBadge != null) {
-            Spacer(Modifier.width(10.dp))
-            Text(
-                text = "$indexBadge",
-                color = fg.copy(alpha = 0.38f),
-                fontSize = 13.sp,
-            )
-        }
         if (chevron) {
             Spacer(Modifier.width(8.dp))
             LineIcon(glyph = "chevron", color = fg.copy(alpha = 0.45f), size = 17.dp, strokeWidthUnits = 1.6f)

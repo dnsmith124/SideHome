@@ -39,14 +39,10 @@ internal fun DebugDayPanel(
     arbiterEnabled: Boolean,
     hudVisible: Boolean,
     sandbox: Boolean,
-    searchAutoFocusList: Boolean,
-    searchAutoFocusGallery: Boolean,
     onToggleArbiter: () -> Unit,
     onToggleHud: () -> Unit,
     onToggleSandbox: () -> Unit,
     onResetSandbox: () -> Unit,
-    onToggleAutoFocusList: () -> Unit,
-    onToggleAutoFocusGallery: () -> Unit,
     onOpenThemes: () -> Unit,
     onScrub: (Float) -> Unit,
     onLive: () -> Unit,
@@ -125,17 +121,6 @@ internal fun DebugDayPanel(
                         .clickable { onOpenThemes() }
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                 )
-            }
-            Spacer(Modifier.height(6.dp))
-            // SID-97: feel out per-view search auto-focus on the SP-01. The List ships search-first and
-            // the Gallery browse-first; whichever the thumb prefers becomes the default and the toggle
-            // graduates to a real setting or is deleted. NOT a shipped knob — the taste call lives here.
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text("Autofocus", color = fg.copy(alpha = 0.5f), fontSize = 12.sp)
-                Spacer(Modifier.width(8.dp))
-                DebugToggle("List", searchAutoFocusList, fg, accent, onToggleAutoFocusList)
-                Spacer(Modifier.width(6.dp))
-                DebugToggle("Gallery", searchAutoFocusGallery, fg, accent, onToggleAutoFocusGallery)
             }
         }
     }

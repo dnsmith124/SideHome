@@ -14,7 +14,7 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 
 /**
- * The page-dots — **Home ● Future** (SPEC §7, SID-27), Past disabled for v1 ([FIRST_PAGE]). The one
+ * The page-dots — **Past ● Home ● Future** (SPEC §7, SID-27), drawn for the navigable pages. The one
  * affordance in the gesture map that earns its pixels: every other swipe is invisible by design (up
  * rides on convention, down is an unmarked power gesture), but *where you are* across the places is a
  * fact the home cannot otherwise tell you — the panes are places, not drawers, so there is no peeking
@@ -99,16 +99,17 @@ internal fun PageDots(
     fg: Color,
     modifier: Modifier = Modifier,
     lastPage: Int = FUTURE_PAGE,
+    firstPage: Int = HOME_PAGE,
 ) {
     Canvas(
         modifier
             .windowInsetsPadding(WindowInsets.statusBars)
             .padding(top = DotsTopGap)
             .size(
-                // Derived from the navigable pages rather than a literal count, so disabling Past
-                // — or Future, via [lastPage] (SID-181) — never leaves a dead dot drawn under an
-                // unreachable pane.
-                width = DotRadius * 2 + DotSpacing * (lastPage - FIRST_PAGE),
+                // Derived from the navigable pages rather than a literal count, so disabling the
+                // left page — or Future, via [lastPage] (SID-181) — never leaves a dead dot drawn
+                // under an unreachable pane.
+                width = DotRadius * 2 + DotSpacing * (lastPage - firstPage),
                 height = DotRadius * 2,
             ),
     ) {
@@ -117,12 +118,12 @@ internal fun PageDots(
         val cy = size.height / 2f
         val pos = pagePosition()
         // [pos] and [i] are absolute page indices (Home = 1), but the dots draw from the navigable
-        // first page, so the x-offset is measured from [FIRST_PAGE].
-        for (i in FIRST_PAGE..lastPage) {
+        // first page, so the x-offset is measured from [firstPage].
+        for (i in firstPage..lastPage) {
             drawCircle(
                 color = fg,
                 radius = r,
-                center = Offset(r + (i - FIRST_PAGE) * step, cy),
+                center = Offset(r + (i - firstPage) * step, cy),
                 alpha = dotAlpha(pos, i),
             )
         }

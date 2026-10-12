@@ -52,10 +52,10 @@ import fi.palonkorpi.sidehome.notifications.NotificationBadges
 import fi.palonkorpi.sidehome.settings.ClockFormat
 import fi.palonkorpi.sidehome.settings.SettingsStore
 import fi.palonkorpi.sidehome.settings.clockFormatAsState
+import fi.palonkorpi.sidehome.pane.LeftPane
 import fi.palonkorpi.sidehome.settings.drawerListFirstAsState
-import fi.palonkorpi.sidehome.settings.keyNavEnabledAsState
+import fi.palonkorpi.sidehome.settings.leftPaneAsState
 import fi.palonkorpi.sidehome.settings.notificationAccessStatus
-import fi.palonkorpi.sidehome.settings.showIndexBadgesAsState
 import fi.palonkorpi.sidehome.settings.wallpaperSyncHomeAsState
 import fi.palonkorpi.sidehome.settings.wallpaperSyncLockAsState
 import fi.palonkorpi.sidehome.weather.CityComposer
@@ -93,9 +93,8 @@ private fun SettingsScreen(settings: SettingsStore) {
     val accent = accentColor(mood, fgDark)
 
     val clockFormat by settings.clockFormatAsState()
-    val keyNavEnabled by settings.keyNavEnabledAsState()
     val drawerListFirst by settings.drawerListFirstAsState()
-    val showIndexBadges by settings.showIndexBadgesAsState()
+    val leftPane by settings.leftPaneAsState()
 
     // SID-35's §4a location mirror. The composer *replaces* the settings column rather than floating
     // over it: this screen has no recede-by-blur machinery of its own, and a modal that just sat on
@@ -131,7 +130,7 @@ private fun SettingsScreen(settings: SettingsStore) {
                     .fillMaxSize()
                     .safeDrawingPadding()
                     // The rows (Clock, the notification-dots explainer, the weather section, About)
-                    // add up past 640px, so without this the tail is simply unreachable on the SP-01.
+                    // add up past one screen on a short phone, so the column scrolls.
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 24.dp, vertical = 20.dp),
             ) {
@@ -154,23 +153,8 @@ private fun SettingsScreen(settings: SettingsStore) {
                 }
 
                 Spacer(Modifier.height(28.dp))
-                // SID-97: the one shipped key-nav knob. Off makes dispatchKeyEvent a full passthrough,
-                // so the hardware tile drives whatever the user has bound it to (e.g. an external Key
-                // Mapper app) instead of the launcher. The profile switcher (SID-89) is post-MVP.
-                SettingRow(label = "Key navigation", fg = fg) {
-                    Segmented(
-                        options = listOf("Off" to false, "On" to true),
-                        selected = keyNavEnabled,
-                        fg = fg,
-                        accent = accent,
-                        onSelect = { settings.keyNavEnabled = it },
-                    )
-                }
-
-                Spacer(Modifier.height(28.dp))
-                // SID-182: search-first ("Search") is the shipped default; "List" opens the library
-                // quiet — no focused field, no IME, typing does nothing, and the search pill is a
-                // tap or a key-nav walk away.
+                // SID-182: "List" (the default) opens the library quiet — no focused field, no
+                // keyboard; "Search" opens it with the field focused and the keyboard up.
                 SettingRow(label = "Library opens in", fg = fg) {
                     Segmented(
                         options = listOf("Search" to false, "List" to true),
@@ -182,17 +166,23 @@ private fun SettingsScreen(settings: SettingsStore) {
                 }
 
                 Spacer(Modifier.height(28.dp))
-                // SID-183: the faint 1–9 labels on home items — the visible half of the number-key
-                // quick launch. Off drops only the labels; the keys keep launching.
-                SettingRow(label = "App numbers", fg = fg) {
+                // Pixel Edition: the left-hand page. Upstream shipped it disabled; here it is a choice.
+                SettingRow(label = "Left page", fg = fg) {
                     Segmented(
-                        options = listOf("Off" to false, "On" to true),
-                        selected = showIndexBadges,
+                        options = listOf("Off" to LeftPane.OFF, "Now" to LeftPane.NOW, "Notes" to LeftPane.NOTES),
+                        selected = leftPane,
                         fg = fg,
                         accent = accent,
-                        onSelect = { settings.showIndexBadges = it },
+                        onSelect = { settings.leftPane = it },
                     )
                 }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "A swipe right from home. Now: the hour, the light left, your battery and next " +
+                        "alarm. Notes: a short list you keep — tap to tick, hold to remove.",
+                    color = fg.copy(alpha = 0.85f),
+                    fontSize = 13.sp,
+                )
 
                 Spacer(Modifier.height(28.dp))
                 NotificationDotsRow(fg = fg, accent = accent)
@@ -397,9 +387,15 @@ private fun AboutSection(fg: Color) {
         Text("About", color = fg, fontWeight = FontWeight.Light, fontSize = 22.sp)
         Spacer(Modifier.height(10.dp))
         Text(
-            if (version.isBlank()) "SideHome" else "SideHome $version",
+            if (version.isBlank()) "SideHome Pixel Edition" else "SideHome Pixel Edition $version",
             color = fg,
             fontSize = 15.sp,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "A fork of SideHome by Oliver Palonkorpi, for the Pixel 9. GPL-3.0.",
+            color = fg.copy(alpha = 0.85f),
+            fontSize = 13.sp,
         )
         Spacer(Modifier.height(6.dp))
         Text(

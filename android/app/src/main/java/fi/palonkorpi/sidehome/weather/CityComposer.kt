@@ -1,6 +1,5 @@
 package fi.palonkorpi.sidehome.weather
 
-import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -33,7 +33,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -73,14 +72,8 @@ fun CityComposer(
     var searching by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
 
-    // Same test the drawer's search field uses (SID-21): with the compact tile present the field
-    // takes focus on open and the keyboard is already the input; a virtual-only device opens
-    // unfocused rather than throwing a keyboard over its own results.
-    val configuration = LocalConfiguration.current
-    val autoFocus = configuration.keyboard == Configuration.KEYBOARD_QWERTY &&
-        configuration.hardKeyboardHidden == Configuration.HARDKEYBOARDHIDDEN_NO
-
-    LaunchedEffect(Unit) { if (autoFocus) runCatching { focus.requestFocus() } }
+    // You came here to type a place, so the field takes focus on open and the keyboard is already up.
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 
     BackHandler(enabled = true, onBack = onDismiss)
 
@@ -102,10 +95,12 @@ fun CityComposer(
 
     val rule = fg.copy(alpha = 0.22f)
 
+    // The panes draw edge-to-edge, so a top-anchored composer insets itself under the status bar.
     Column(
         modifier
             .fillMaxSize()
-            .padding(start = 32.dp, end = 28.dp, top = 40.dp, bottom = 44.dp),
+            .statusBarsPadding()
+            .padding(start = 32.dp, end = 28.dp, top = 24.dp, bottom = 44.dp),
     ) {
         Text(
             "Where are you?",
@@ -141,7 +136,7 @@ fun CityComposer(
                     Box(Modifier.weight(1f)) {
                         if (query.isEmpty()) {
                             Text(
-                                if (autoFocus) "Type a city" else "Tap, then type a city",
+                                "Type a city",
                                 color = fg.copy(alpha = 0.6f),
                                 fontFamily = Inter,
                                 fontSize = 18.sp,

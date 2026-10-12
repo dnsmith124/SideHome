@@ -37,13 +37,11 @@ internal const val FUTURE_PAGE = 2
 private const val PAGE_COUNT = 3
 
 /**
- * The leftmost page a swipe can actually reach. The **Past pane ships disabled for v1** — nothing
- * stands behind Home on the left, so Home is the left end and only Future lies to the right. The
- * three-page model and [HOME_PAGE]'s centre role are untouched (the drawer/spotlight still arm from
- * Home, [panPx] is still measured against it); this is only the navigable floor. Re-enabling Past is
- * one line: set this back to [PAST_PAGE].
+ * The leftmost page a swipe could ever reach. Upstream shipped Past disabled; the Pixel Edition
+ * enables it per the "Left page" setting, so the live floor is [PaneState]'s `firstPage` lambda
+ * (its runtime twin, like `lastPage` for the weather) and this is only the hard limit.
  */
-internal const val FIRST_PAGE = HOME_PAGE
+internal const val FIRST_PAGE = PAST_PAGE
 
 /**
  * Stiffness of the page-settle spring (SID-78 "settle feel"). Between Compose's StiffnessMediumLow
@@ -66,6 +64,9 @@ internal class PaneState(
     // [containerW] because, unlike the compile-time floor, this one changes live: turning weather
     // off in settings pulls the ceiling in to Home without recreating the state.
     private val lastPage: () -> Int = { FUTURE_PAGE },
+    // The leftmost page a swipe can reach — Past when the left page is on, else Home. A lambda for
+    // the same reason as [lastPage]: the setting flips live.
+    private val firstPage: () -> Int = { HOME_PAGE },
 ) {
     /** Which page is settled. Mid-gesture this is still the page we left; [dragPx] is the travel. */
     var pageIndex by mutableIntStateOf(HOME_PAGE)
@@ -111,7 +112,7 @@ internal class PaneState(
         job?.cancel()
         val w = containerW()
         val lower = if (pageIndex < lastPage()) -w else 0f   // drag left (negative) reveals the next
-        val upper = if (pageIndex > FIRST_PAGE) w else 0f    // drag right (positive) reveals the prev
+        val upper = if (pageIndex > firstPage()) w else 0f   // drag right (positive) reveals the prev
         val (lo, hi) = when (edge) {
             EdgeDir.LEFT -> 0f to upper
             EdgeDir.RIGHT -> lower to 0f
@@ -136,7 +137,7 @@ internal class PaneState(
      */
     fun goTo(target: Int, initialVelocityPxPerS: Float = 0f) {
         val w = containerW()
-        val np = target.coerceIn(FIRST_PAGE, lastPage())
+        val np = target.coerceIn(firstPage(), lastPage())
         val settledDrag = (pageIndex - np) * w // the current frame, expressed against the old index
         job?.cancel()
         job = scope.launch {
@@ -164,11 +165,11 @@ internal class PaneState(
     fun settleTarget(velocityTowardNextDpPerS: Float): Int {
         val w = containerW()
         val frac = if (w > 0f) -dragPx / w else 0f
-        // Coerce to the navigable range: with Past disabled, a leftward fling from Home must land
-        // back on Home, never fall through to page 0 — and with weather off (SID-181) the same is
-        // true of a rightward fling toward the disabled Future.
+        // Coerce to the navigable range: with the left page off, a leftward fling from Home must
+        // land back on Home, never fall through to page 0 — and with weather off (SID-181) the same
+        // is true of a rightward fling toward the disabled Future.
         return settlePage(pageIndex, frac, velocityTowardNextDpPerS, PAGE_COUNT, tuning())
-            .coerceIn(FIRST_PAGE, lastPage())
+            .coerceIn(firstPage(), lastPage())
     }
 
     /**
@@ -195,12 +196,14 @@ internal fun rememberPanes(
     containerW: Int,
     tuning: GestureTuning,
     lastPage: Int = FUTURE_PAGE,
+    firstPage: Int = HOME_PAGE,
 ): PaneState {
     val scope = rememberCoroutineScope()
     val wState = rememberUpdatedState(containerW)
     val tuningState = rememberUpdatedState(tuning)
     val densityState = rememberUpdatedState(LocalDensity.current.density)
     val lastPageState = rememberUpdatedState(lastPage)
+    val firstPageState = rememberUpdatedState(firstPage)
     return remember(scope) {
         PaneState(
             scope = scope,
@@ -208,6 +211,7 @@ internal fun rememberPanes(
             tuning = { tuningState.value },
             density = { densityState.value },
             lastPage = { lastPageState.value },
+            firstPage = { firstPageState.value },
         )
     }
 }

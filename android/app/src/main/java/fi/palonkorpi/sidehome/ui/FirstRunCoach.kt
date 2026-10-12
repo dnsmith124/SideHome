@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fi.palonkorpi.sidehome.settings.SettingsStore
+import fi.palonkorpi.sidehome.pane.LeftPane
 
 /**
  * The one-time first-run gesture coach (SPEC §7, SID-27). The gestures are all invisible swipes on a
@@ -80,13 +81,15 @@ internal data class CoachLine(
 // gestures that actually do something: swipe up for apps, and — while the weather exists (SID-181)
 // — swipe left for the weather glance. A function, not a constant list, because that second row is
 // now conditional; pure so the line set is testable without layout.
-internal fun coachLines(weatherEnabled: Boolean, quickLaunch: Boolean = false): List<CoachLine> =
+internal fun coachLines(weatherEnabled: Boolean, leftPane: LeftPane = LeftPane.OFF): List<CoachLine> =
     buildList {
         add(CoachLine(CHEVRON_UP, "apps"))
         if (weatherEnabled) add(CoachLine(CHEVRON_LEFT, "weather"))
-        // The 1–9 badges read as mystery counts until someone says otherwise (SID-183) — one row,
-        // only when a hardware tile is fitted, because on touch alone the badges never show.
-        if (quickLaunch) add(CoachLine(0f, "apps by number", badge = "1–9"))
+        when (leftPane) {
+            LeftPane.NOW -> add(CoachLine(CHEVRON_RIGHT, "now"))
+            LeftPane.NOTES -> add(CoachLine(CHEVRON_RIGHT, "notes"))
+            LeftPane.OFF -> {}
+        }
     }
 
 /**
@@ -145,7 +148,7 @@ internal fun FirstRunCoach(
     panelColor: Color,
     onDismiss: () -> Unit,
     weatherEnabled: Boolean = true,
-    quickLaunch: Boolean = false,
+    leftPane: LeftPane = LeftPane.OFF,
 ) {
     val enter = rememberOverlayEnter(riseDp = 10f)
 
@@ -176,7 +179,7 @@ internal fun FirstRunCoach(
                 fontWeight = FontWeight.Medium,
             )
             Spacer(Modifier.height(14.dp))
-            coachLines(weatherEnabled, quickLaunch).forEach { line ->
+            coachLines(weatherEnabled, leftPane).forEach { line ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (line.badge != null) {
                         Text(

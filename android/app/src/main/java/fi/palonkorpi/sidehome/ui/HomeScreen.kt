@@ -2,7 +2,6 @@ package fi.palonkorpi.sidehome.ui
 
 import android.app.Activity
 import android.content.Intent
-import android.content.res.Configuration
 import android.net.Uri
 import android.provider.AlarmClock
 import android.provider.Settings
@@ -34,7 +33,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -91,26 +89,18 @@ import fi.palonkorpi.sidehome.gesture.GestureScene
 import fi.palonkorpi.sidehome.gesture.GestureTuning
 import fi.palonkorpi.sidehome.gesture.settleOpen
 import fi.palonkorpi.sidehome.MainActivity
-import fi.palonkorpi.sidehome.keynav.KeyHandlerSlot
-import fi.palonkorpi.sidehome.keynav.KeyIntent
-import fi.palonkorpi.sidehome.keynav.KeyNavConfig
-import fi.palonkorpi.sidehome.keynav.KeyNavController
-import fi.palonkorpi.sidehome.keynav.KeyProfiles
-import fi.palonkorpi.sidehome.keynav.moveCursor
-import fi.palonkorpi.sidehome.keynav.quickIndexTarget
 import fi.palonkorpi.sidehome.nav.BackStep
 import fi.palonkorpi.sidehome.nav.CoveringSurface
 import fi.palonkorpi.sidehome.nav.HomeKeyAction
 import fi.palonkorpi.sidehome.nav.HomeUiState
-import fi.palonkorpi.sidehome.nav.KeyRoute
 import fi.palonkorpi.sidehome.nav.OverlayStack
 import fi.palonkorpi.sidehome.nav.backStep
-import fi.palonkorpi.sidehome.nav.canOpenDrawerFromBare
 import fi.palonkorpi.sidehome.nav.detachesArbiter
 import fi.palonkorpi.sidehome.nav.homeKeyAction
-import fi.palonkorpi.sidehome.nav.keyRoute
-import fi.palonkorpi.sidehome.nav.overlayTextFieldFocused
 import fi.palonkorpi.sidehome.nav.shouldFireCascade
+import fi.palonkorpi.sidehome.pane.LeftPane
+import fi.palonkorpi.sidehome.pane.NotesPane
+import fi.palonkorpi.sidehome.pane.NowPane
 import fi.palonkorpi.sidehome.photo.BAKE_STYLE_VERSION
 import fi.palonkorpi.sidehome.photo.PhotoBake
 import fi.palonkorpi.sidehome.settings.SettingsStore
@@ -120,10 +110,9 @@ import fi.palonkorpi.sidehome.settings.customHueAsState
 import fi.palonkorpi.sidehome.settings.customSatAsState
 import fi.palonkorpi.sidehome.settings.drawerListFirstAsState
 import fi.palonkorpi.sidehome.settings.formatClock
-import fi.palonkorpi.sidehome.settings.keyNavEnabledAsState
+import fi.palonkorpi.sidehome.settings.leftPaneAsState
 import fi.palonkorpi.sidehome.settings.photoGenerationAsState
 import fi.palonkorpi.sidehome.settings.photoMoodAsState
-import fi.palonkorpi.sidehome.settings.showIndexBadgesAsState
 import fi.palonkorpi.sidehome.settings.themeAsState
 import fi.palonkorpi.sidehome.settings.wallpaperSyncHomeAsState
 import fi.palonkorpi.sidehome.settings.wallpaperSyncLockAsState
@@ -189,8 +178,8 @@ fun SideHomeApp(
     val customDrift by settings.customDriftAsState()   // SID-177: Custom follows the day (opt-in, off)
     val weatherPlace by settings.weatherPlaceAsState()   // its latitude casts the day-cycle (below)
     val weatherEnabled by settings.weatherEnabledAsState()   // SID-181: off disables Future outright
+    val leftPane by settings.leftPaneAsState()   // Pixel Edition: what the left page holds, or OFF
     val drawerListFirst by settings.drawerListFirstAsState()   // SID-182: library opens quiet
-    val showIndexBadges by settings.showIndexBadgesAsState()   // SID-183: the 1–9 quick-launch labels
     val photoMoodPref by settings.photoMoodAsState()   // SID-43: the Photo theme's extracted mood
     val photoGeneration by settings.photoGenerationAsState()   // SID-43: bake cache key; 0 = none
     // installed apps (loaded off the main thread) + the home model (apps + folders)
@@ -435,7 +424,6 @@ fun SideHomeApp(
     // is search-first (focused). This one flag drives the modality, the reveal-first bypass, and the
     // overlay ladder's text-field test (SID-110). Declared here (not by its old use site) so the
     // ladder builder below it can read it.
-    val drawerGallery = drawerActive && browseMode != BrowseMode.LIST
 
     // Which App Gallery bucket is drilled into (SID-96), hoisted from the drawer so it's a first-class
     // surface in the one shared state model (SID-87): a drilled-in bucket is a folder-like layer, so
@@ -457,6 +445,8 @@ fun SideHomeApp(
     // surface you are inside, so it detaches the arbiter exactly as the drawer and the strip do —
     // otherwise a stray horizontal drag pages the pane out from under someone mid-word.
     var futureComposerOpen by remember { mutableStateOf(false) }
+    // The Notes page's composer, on the same contract.
+    var pastComposerOpen by remember { mutableStateOf(false) }
 
     var hudVisible by remember { mutableStateOf(false) }
     var containerW by remember {
@@ -469,11 +459,12 @@ fun SideHomeApp(
         containerW = containerW,
         tuning = tuning,
         lastPage = if (weatherEnabled) FUTURE_PAGE else HOME_PAGE,
+        firstPage = if (leftPane != LeftPane.OFF) PAST_PAGE else HOME_PAGE,
     )
-    // If the toggle flips while the viewport is parked on Future, walk it home; goTo clamps to the
-    // new ceiling, so this is a recentre, not a jump to a now-forbidden page.
-    LaunchedEffect(weatherEnabled) {
-        if (!weatherEnabled && !panes.isCentered) panes.goTo(HOME_PAGE)
+    // If a toggle flips while the viewport is parked on a side page, walk it home; goTo clamps to
+    // the new floor/ceiling, so this is a recentre, not a jump to a now-forbidden page.
+    LaunchedEffect(weatherEnabled, leftPane) {
+        if (!panes.isCentered) panes.goTo(panes.pageIndex)
     }
     var spotlightFrac by remember { mutableFloatStateOf(0f) }
     var spotlightJob by remember { mutableStateOf<Job?>(null) }
@@ -497,6 +488,7 @@ fun SideHomeApp(
     // The Future pane's scroll, hoisted here because the arbiter owns every touch on the scene and
     // drives the pane by dispatching raw deltas into this state (the pane's own scroll is disabled).
     val futurePaneScroll = rememberScrollState()
+    val pastPaneScroll = rememberScrollState()
     val arbiterHooks = remember {
         ArbiterHooks(
             onCenterPage = { panes.isCentered },
@@ -517,11 +509,14 @@ fun SideHomeApp(
             onSpotlightSettle = { v -> settleSpotlight(v) },
             onPagerDrag = { dx, edge -> panes.drag(dx, edge) },
             onPagerSettle = { v -> panes.settle(v) },
-            // A vertical drag on a side pane scrolls its content. Only the Future pane scrolls today
-            // (Past is a placeholder); the sign flips finger-travel into scroll offset (drag up →
-            // reveal below). dispatchRawDelta is synchronous, so it tracks the finger frame-for-frame.
+            // A vertical drag on a side pane scrolls its content; the sign flips finger-travel into
+            // scroll offset (drag up → reveal below). dispatchRawDelta is synchronous, so it tracks
+            // the finger frame-for-frame.
             onPaneScroll = { dy ->
-                if (panes.pageIndex == FUTURE_PAGE) futurePaneScroll.dispatchRawDelta(-dy)
+                when (panes.pageIndex) {
+                    FUTURE_PAGE -> futurePaneScroll.dispatchRawDelta(-dy)
+                    PAST_PAGE -> pastPaneScroll.dispatchRawDelta(-dy)
+                }
             },
             // Only mutate the HUD state when the HUD is actually shown. `hud` is read in this
             // composition (passed by value to GestureScene), so a write recomposes the whole launcher
@@ -601,7 +596,7 @@ fun SideHomeApp(
     }
 
     // SID-112: the one home-item bounds registry. The rows report into it; the arbiter's hit-test,
-    // the theme-chooser long-press gate, the placement drop-resolver, and the key-nav strip anchor
+    // the theme-chooser long-press gate, the placement drop-resolver, and the strip anchor
     // all read it — one source of "where does row i sit", not four copies fed from one callback.
     val homeItems = remember { HomeItemBounds() }
 
@@ -716,8 +711,7 @@ fun SideHomeApp(
     // collapse overlays (it no longer keys the cascade). A return-from-app HOME is routed via
     // appReveal instead, so it is never seen here.
     // The HOME action — collapse the overlay stack a step toward bare home, else open the drawer
-    // (SID-33). Extracted so both the foreground-HOME signal (homeRecall) and the key-nav Home intent
-    // (SID-81) run the one rule rather than two copies that could drift.
+    // (SID-33).
     fun runHomeKey() {
         val action = homeKeyAction(
             HomeUiState(
@@ -915,8 +909,7 @@ fun SideHomeApp(
     val overlayOpen = drawerFull || folderIndex != null
 
     // SID-110: the one snapshot of the overlay stack. Every "which surface owns input" decision below
-    // — the Back ladder, the arbiter-detach test, the key-nav routing, the text-field test, the
-    // open-drawer guard — is a pure function of this one value ([fi.palonkorpi.sidehome.nav]), so they
+    // — the Back ladder, the arbiter-detach test — is a pure function of this one value ([fi.palonkorpi.sidehome.nav]), so they
     // can no longer drift the way five hand-copied subsets did. Read live: it captures the holders at
     // the moment it is called (a Back press, a recomposition), off the composition path where needed.
     fun stack() = OverlayStack(
@@ -932,18 +925,16 @@ fun SideHomeApp(
         strip = stripFor != null,
         debug = debugOpen,
         themeChooser = themeChooserOpen,
-        futureComposer = futureComposerOpen,
+        futureComposer = futureComposerOpen || pastComposerOpen,
         folder = folderIndex != null,
         drawerActive = drawerActive,
-        drawerGallery = drawerGallery,
         galleryBucket = galleryBucket != null,
         spotlightEngaged = arbiterEnabled && spotlightFrac > 0.001f,
         panesOffCentre = arbiterEnabled && !panes.isCentered,
     )
 
     // The Back ladder — one step back through whatever is innermost. The *order* now lives in the pure
-    // [backStep] (SID-110); here each step is only its dismiss side effect. The key-nav Back intent
-    // (SID-81/SID-87) walks this exact same function, so key-nav's Back *is* this, not a second copy.
+    // [backStep] (SID-110); here each step is only its dismiss side effect.
     fun handleBack() {
         when (backStep(stack())) {
             // The coach is over everything and eats every touch, so it is the only thing a Back can be
@@ -979,54 +970,13 @@ fun SideHomeApp(
         }
     }
 
-    // ---- hardware key-navigation (SID-81) ----------------------------------------------------
-    // The intents arrive from MainActivity.dispatchKeyEvent via [KeyNavController]; here they mutate
-    // the very same holders touch drives (folderIndex / stripFor / drawerFrac / the favourite cursor),
-    // so there is one surface-state model, not two (SID-87). The cursor is an app-owned index (SID-84).
-    val keyNav = remember { KeyNavController() }
-    // The one shipped key-nav setting (SID-97): a global ON/OFF, default on (the SP-01 is a
-    // hardware-keypad phone). OFF makes dispatchKeyEvent a full passthrough so it never fights an
-    // external Key Mapper app. The profile switcher stays post-MVP (SID-89) — the unified all-tiles
-    // default needs none.
-    val keyNavEnabled by settings.keyNavEnabledAsState()
-    // The per-view taste defaults (SID-97), one flip-ready object. Held as state so the debug toggles
-    // (long-press the clock) can flip search-auto-focus per view on-device; whichever the thumb
-    // settles on becomes the shipped default and the toggle graduates or is deleted. NOT the
-    // keycode→intent map — that's the profile's job.
-    var keyNavConfig by remember { mutableStateOf(KeyNavConfig.DEFAULT) }
-    // A hardware keypad is attached (the same signal the drawer auto-focus keys off, SID-21). Gates
-    // the faint direct-index position numbers (1–N) so a virtual-only device shows none.
-    val hardwareKeys = configuration.keyboard == Configuration.KEYBOARD_QWERTY &&
-        configuration.hardKeyboardHidden == Configuration.HARDKEYBOARDHIDDEN_NO
-    // The favourite cursor, and whether it should show. Hidden until the first key move so the
-    // touch-first home is unchanged until someone actually navigates by key.
-    var homeCursor by remember { mutableIntStateOf(0) }
-    var keyNavActive by remember { mutableStateOf(false) }
     // Row bounds live in the shared [homeItems] registry (SID-112). Prune rows that no longer exist —
     // a stale rect over now-empty space would otherwise make the arbiter yield there and swallow a
-    // page swipe (the key-raised strip anchors off the same registry, so it stays correct too).
+    // page swipe (the strip anchors off the same registry, so it stays correct too).
     LaunchedEffect(home.size) { homeItems.retain(home.indices.toSet()) }
-    // Linear cursors for the folder (a vertical list, like the home) and horizontal for the strip's
-    // cells. Reset — and made visible — when their surface (re)opens.
-    var folderCursor by remember { mutableIntStateOf(0) }
-    var stripCursor by remember { mutableIntStateOf(0) }
-    // Reset the cursor to the first item on open, but do NOT reveal the highlight — that's the rocking
-    // path's job (SID-98). A folder/strip opened by a direct-index number stays highlight-free; the
-    // first ring press is what brings the cursor up (at item 1). If key-nav was already active (you
-    // rocked home, then selected in), the flag carries and the reset cursor shows at the first item.
-    LaunchedEffect(folderIndex) { folderCursor = 0 }
-    LaunchedEffect(stripFor) { stripCursor = 0 }
-    // The drawer owns its ranked results, so it registers a handler the router calls while the drawer
-    // is the active surface (SID-84) — see [KeyHandlerSlot] for why this isn't Compose state.
-    val drawerKey = remember { KeyHandlerSlot() }
 
-    // Launching an app ends the key-nav session: drop the highlight so returning to a fresh home — or
-    // switching to a direct-index tile — shows no stale cursor (the highlight is a live-rocking
-    // affordance only). launchApp itself is declared before keyNavActive, so this wraps it here.
-    fun keyLaunch(app: AppEntry) { keyNavActive = false; launchApp(app) }
-
-    // The strip's context for a subject, shared by the render site and key-nav so the cell list they
-    // act on is the one list (SID-87). Mirrors the ActionStrip call site's ctx construction.
+    // The strip's context for a subject: LIBRARY_APP gates Add-to-home on placement; a full home is a
+    // question the rows answer, not a wall (SID-30). Mirrors the ActionStrip call site.
     fun stripContextFor(subject: StripSubject): ActionContext = when (subject) {
         is LibraryApp -> ActionContext(
             target = ActionTarget.LIBRARY_APP,
@@ -1038,164 +988,6 @@ fun SideHomeApp(
         // A member's verbs are folder-membership lifecycle; none of them gate on the home count or on
         // being placed, so the ctx is bare (Add-to-home is never dimmed — see [actionsFor]).
         is FolderMember -> ActionContext(target = ActionTarget.FOLDER_MEMBER)
-    }
-
-    // Act on the home. Up/down rock the favourite cursor; left/right page the panes (SID-82);
-    // direct-index self-activates without a cursor.
-    fun applyHomeIntent(intent: KeyIntent) {
-        if (home.isEmpty()) return
-        val sel = homeCursor.coerceIn(0, home.size - 1)
-        when (intent) {
-            KeyIntent.NavUp -> homeCursor = moveCursor(sel, -1, home.size)
-            KeyIntent.NavDown -> homeCursor = moveCursor(sel, 1, home.size)
-            // Home's horizontal axis pages Past·Home·Future. Past is disabled for v1, so a left page
-            // lands back on Home. This is the Sundial ring's job — QWERTY/T9 have no left/right key.
-            KeyIntent.NavLeft -> panes.goTo(FIRST_PAGE)
-            KeyIntent.NavRight -> panes.goTo(FUTURE_PAGE)
-            KeyIntent.Select -> when (val item = home[sel]) {
-                is AppItem -> appsByKey[item.key]?.let { keyLaunch(it) }
-                is FolderItem -> folderIndex = sel
-            }
-            is KeyIntent.ItemMenu -> {
-                // Hold-Select targets the cursor; hold-number targets that item (SID-87).
-                val target = intent.index?.let { quickIndexTarget(it, home.size) } ?: sel
-                val bounds = homeItems.boundsOf(target) ?: Rect.Zero
-                when (val item = home[target]) {
-                    is AppItem -> appsByKey[item.key]?.let { stripFor = HomeApp(it, target, bounds) }
-                    is FolderItem -> stripFor = HomeFolder(target, bounds)
-                }
-            }
-            // Direct-index self-activates and moves no cursor — it isn't a d-pad step (SID-84).
-            is KeyIntent.QuickIndex -> quickIndexTarget(intent.n, home.size)?.let { i ->
-                when (val item = home[i]) {
-                    is AppItem -> appsByKey[item.key]?.let { keyLaunch(it) }
-                    is FolderItem -> folderIndex = i
-                }
-            }
-            else -> {}
-        }
-    }
-
-    // Act on the cursor's member inside an open folder — a vertical list, so the same linear model as
-    // the home. Select launches and closes the folder (matching the touch onLaunch).
-    fun applyFolderIntent(intent: KeyIntent) {
-        val folder = folderIndex?.let { home.folderAt(it) } ?: return
-        val members = folder.appKeys.mapNotNull { appsByKey[it] }
-        if (members.isEmpty()) return
-        val sel = folderCursor.coerceIn(0, members.size - 1)
-        when (intent) {
-            // A vertical list, so both axes advance the same single cursor (SID-82's 1-D rule) — the
-            // Sundial ring can walk it up/down or left/right.
-            KeyIntent.NavUp, KeyIntent.NavLeft -> folderCursor = moveCursor(sel, -1, members.size)
-            KeyIntent.NavDown, KeyIntent.NavRight -> folderCursor = moveCursor(sel, 1, members.size)
-            KeyIntent.Select -> { keyLaunch(members[sel]); folderIndex = null }
-            // Direct-index self-activates, no cursor move.
-            is KeyIntent.QuickIndex -> quickIndexTarget(intent.n, members.size)?.let {
-                keyLaunch(members[it]); folderIndex = null
-            }
-            // A member's action strip by key (hold) is deferred; Back closes the folder (a global).
-            else -> {}
-        }
-    }
-
-    // Move across the strip's cells and fire one — left/right rock the cursor, a number fires directly.
-    fun applyStripIntent(intent: KeyIntent) {
-        val subject = stripFor ?: return
-        val cells = actionsFor(stripContextFor(subject))
-        if (cells.isEmpty()) return
-        val sel = stripCursor.coerceIn(0, cells.size - 1)
-        // A disabled cell is a visible no-op, exactly as a tap on it is (it isn't clickable).
-        fun fire(i: Int) = cells[i].let { if (it.enabled) runStripAction(subject, it.action) }
-        when (intent) {
-            // A 1-D horizontal surface, so both axes step the single cell (SID-82) — the Sundial ring's
-            // up/down drives it just as left/right does.
-            KeyIntent.NavLeft, KeyIntent.NavUp -> stripCursor = moveCursor(sel, -1, cells.size)
-            KeyIntent.NavRight, KeyIntent.NavDown -> stripCursor = moveCursor(sel, 1, cells.size)
-            KeyIntent.Select -> fire(sel)
-            is KeyIntent.QuickIndex -> quickIndexTarget(intent.n, cells.size)?.let { fire(it) }
-            else -> {}
-        }
-    }
-
-    fun applyKeyIntent(intent: KeyIntent) {
-        // Globals that fire regardless of the surface underneath.
-        when (intent) {
-            KeyIntent.Home -> { runHomeKey(); return }
-            KeyIntent.Back -> { handleBack(); return }
-            KeyIntent.OpenDrawer -> {
-                // The Sundial's library corner toggles: close the drawer if it's open, else open it
-                // from a settled bare home (if anything else is up, Back/Home clear it first). The
-                // guard is the pure [canOpenDrawerFromBare] (SID-110).
-                if (drawerActive) {
-                    settleDrawer(0f)
-                } else if (canOpenDrawerFromBare(stack())) {
-                    settleDrawer(1f)
-                }
-                return
-            }
-            else -> {}
-        }
-        // The cursor highlight is a rocking (d-pad) affordance only — direct-index self-activates and
-        // shows no cursor (SID-84/SID-98). Rocking (or Select) reveals it; a direct-index number press
-        // hides it again, so the highlight tracks "am I d-padding right now?".
-        val wasActive = keyNavActive
-        when (intent) {
-            KeyIntent.NavUp, KeyIntent.NavDown, KeyIntent.NavLeft, KeyIntent.NavRight,
-            KeyIntent.Select -> keyNavActive = true
-            is KeyIntent.QuickIndex -> keyNavActive = false
-            else -> {}
-        }
-        // One routing decision for both the reveal-first gate and the dispatch below: which surface a
-        // key-nav intent acts on (SID-110's [keyRoute]).
-        val route = keyRoute(stack())
-        val isNav = intent == KeyIntent.NavUp || intent == KeyIntent.NavDown ||
-            intent == KeyIntent.NavLeft || intent == KeyIntent.NavRight
-        // Reveal-first (SID-98): the first rocking press only brings the highlight up on the current
-        // cursor — the first item — it does not also step. Later presses move. Only cursor moves are
-        // reveal-first; home pages on left/right, so those still page on the first press. The App
-        // Gallery is never reveal-first — it arrives in D-pad mode with the first bubble marked (SID-96).
-        val movesCursor = when (route) {
-            KeyRoute.Strip, KeyRoute.Folder -> isNav
-            KeyRoute.ModalGlobalsOnly -> false
-            KeyRoute.Drawer -> !drawerGallery && (intent == KeyIntent.NavUp || intent == KeyIntent.NavDown)
-            KeyRoute.Home -> intent == KeyIntent.NavUp || intent == KeyIntent.NavDown
-        }
-        if (movesCursor && !wasActive) return
-        // Surface-scoped, innermost first. A carry and the pickers/modals answer only the globals above
-        // (Back/Home step them back); the drawer routes through its own registered handler.
-        when (route) {
-            KeyRoute.Strip -> applyStripIntent(intent)
-            KeyRoute.Folder -> applyFolderIntent(intent)
-            KeyRoute.ModalGlobalsOnly -> {}
-            KeyRoute.Drawer -> drawerKey.handler?.invoke(intent)
-            KeyRoute.Home -> applyHomeIntent(intent)
-        }
-    }
-
-    // Feed the controller live state after each successful recomposition, then hand the Activity its
-    // handler. A text field is "focused" (SID-85) whenever a surface that owns one is up — the
-    // drawer's search (auto-focused, SID-21), a folder rename, or the Future pane's city composer — so
-    // letters type there while the uniform reserved set (D-pad + Enter + Back) still navigates.
-    SideEffect {
-        keyNav.navEnabled = keyNavEnabled
-        // One hold threshold for finger and key (SID-111): feed the key controller the same live
-        // GestureTuning.holdTimeoutMs the touch itemPress race reads.
-        keyNav.holdTimeoutMs = tuning.holdTimeoutMs
-        // A text field is "focused" (SID-85) only where one holds focus: the A–Z List's search
-        // (auto-focused, SID-21), a folder rename, or the Future city composer. NOT the App Gallery —
-        // it's browse-first (SID-96), so its numbers rock the bubble D-pad instead of typing. The
-        // pure [overlayTextFieldFocused] (SID-110) is the one definition.
-        keyNav.textFieldFocused = overlayTextFieldFocused(stack())
-        keyNav.profile = KeyProfiles.DEFAULT
-        keyNav.onIntent = { applyKeyIntent(it) }
-    }
-    val keyNavHost = remember(context) {
-        generateSequence(context) { (it as? android.content.ContextWrapper)?.baseContext }
-            .firstOrNull { it is MainActivity } as? MainActivity
-    }
-    DisposableEffect(keyNavHost, keyNav) {
-        keyNavHost?.keyEventHandler = keyNav::onKeyEvent
-        onDispose { keyNavHost?.keyEventHandler = null }
     }
 
     // A launcher must swallow Back / the edge-swipe gesture. If we only intercept while an overlay
@@ -1369,15 +1161,6 @@ fun SideHomeApp(
                         onItemDrop = { commitDrop(placement.dropTarget) },
                         homeItems = homeItems,
                         handIndex = placement.hand?.source?.homeIndex,
-                        // The key-nav favourite cursor (SID-84), shown only once someone navigates by
-                        // key so the touch-first home is untouched until then.
-                        selectedIndex = if (keyNavActive && home.isNotEmpty()) {
-                            homeCursor.coerceIn(0, home.size - 1)
-                        } else {
-                            null
-                        },
-                        // Faint direct-index numbers (1–N) beside each item (SID-82), when a keypad's on.
-                        showIndexNumbers = hardwareKeys && showIndexBadges,
                         // Photo theme only: a soft halo under each label in the ink's opposite
                         // ground — light ink gets a dark shadow, dark ink a light glow.
                         labelHalo = if (theme == Theme.PHOTO) {
@@ -1416,6 +1199,24 @@ fun SideHomeApp(
                         gesturesActive = { !detachesArbiter(stack()) },
                         hooks = arbiterHooks,
                         centerHome = { homeContent(false) },
+                        // Pixel Edition: the left page, per the setting. Like Future, the slot stays
+                        // mounted but empty when it is off — and unreachable, the pager's floor is Home.
+                        pastPane = {
+                            when (leftPane) {
+                                LeftPane.NOW -> NowPane(
+                                    settings = settings,
+                                    fg = fg,
+                                    visible = panes.pageIndex == PAST_PAGE,
+                                )
+                                LeftPane.NOTES -> NotesPane(
+                                    fg = fg,
+                                    accent = accent,
+                                    onComposerOpenChange = { pastComposerOpen = it },
+                                    scrollState = pastPaneScroll,
+                                )
+                                LeftPane.OFF -> {}
+                            }
+                        },
                         // SID-35. `pageIndex` is read *inside* this lambda, not out here: it is the
                         // pane's own scope, so arriving at Future invalidates the pane rather than
                         // the launcher. It changes twice a swipe rather than every frame, which is
@@ -1446,13 +1247,15 @@ fun SideHomeApp(
                     // would pan away with the very home they report on. A lambda for the same reason
                     // GestureScene takes one: read in the draw phase, so a swipe repaints three
                     // circles instead of recomposing the tree.
-                    // SID-181: with weather off, Home is the only navigable page — dots reporting a
-                    // position across one place are noise, so they go entirely.
-                    if (weatherEnabled) {
+                    // With weather off and no left page, Home is the only navigable page — dots
+                    // reporting a position across one place are noise, so they go entirely.
+                    if (weatherEnabled || leftPane != LeftPane.OFF) {
                         PageDots(
                             pagePosition = { panes.pagePosition },
                             fg = fg,
                             modifier = Modifier.align(Alignment.TopCenter),
+                            lastPage = if (weatherEnabled) FUTURE_PAGE else HOME_PAGE,
+                            firstPage = if (leftPane != LeftPane.OFF) PAST_PAGE else HOME_PAGE,
                         )
                     }
                 } else {
@@ -1482,11 +1285,6 @@ fun SideHomeApp(
                     favouriteKeys = home.placedKeys(),
                     fg = fg,
                     accent = accent,
-                    // The fill the drawer actually floats on (the sibling Box just above), so
-                    // SideType's candidate bar can match the sky rather than guess. Without it we
-                    // would send barFg with no barBg and land near-white text on SideType's own
-                    // default bar (SID-18).
-                    backdrop = backdropColor,
                     visible = drawerFull,
                     atRest = !drawerActive,
                     tuning = tuning,
@@ -1498,15 +1296,7 @@ fun SideHomeApp(
                     onOpenCategoryChange = { galleryBucket = it },
                     // SID-80: overlay first, then melt the library away under it — the full-screen
                     // feedback covers the drawer-close → bare-home flash the issue is about.
-                    onLaunch = { keyLaunch(it); drawerFrac = 0f },
-                    // Key-nav (SID-84): the drawer owns its ranked results, so it registers a handler
-                    // that moves a result cursor and launches the selected hit. Enter is caught at the
-                    // Activity before the IME, which is also the double-Enter fix (SID-91). keyNavActive
-                    // gates the highlight so touch users never see a cursor.
-                    onRegisterKeyHandler = { drawerKey.handler = it },
-                    keyNavActive = keyNavActive,
-                    keyNavEnabled = keyNavEnabled,
-                    config = keyNavConfig,
+                    onLaunch = { launchApp(it); drawerFrac = 0f },
                     searchFirst = !drawerListFirst,
                     onAppHold = { app, bounds -> stripFor = LibraryApp(app, bounds) },
                     // SID-30: hold a drawer app and drag → it detaches into the hand and the drawer
@@ -1582,11 +1372,9 @@ fun SideHomeApp(
                         fg = fg,
                         accent = accent,
                         stripColor = menuColor,
-                        selectedIndex = if (keyNavActive) folderCursor.coerceIn(0, (folder.appKeys.size - 1).coerceAtLeast(0)) else null,
-                        showIndexNumbers = hardwareKeys && showIndexBadges,
                         onLaunch = { launchApp(it); folderIndex = null },
                         // SID-114: a member's hold raises the one host strip, as a [FolderMember] —
-                        // same lifecycle (Back, key-nav, arbiter-detach) as every other strip. A
+                        // same lifecycle (Back, arbiter-detach) as every other strip. A
                         // pickup that turns the hold into a reorder carry clears it back off.
                         onMemberHold = { app, bounds -> stripFor = FolderMember(at, app, bounds) },
                         onMemberPickup = { stripFor = null },
@@ -1601,16 +1389,13 @@ fun SideHomeApp(
             // beside it. This and the surfaces below replace the pencil + the Edit sheet: editing is
             // direct manipulation of the item you are holding, not a hub you go to.
             stripFor?.let { subject ->
-                // ctx built by the shared stripContextFor so key-nav and the render act on one cell
-                // list (SID-87): LIBRARY_APP gates Add-to-home on placement; a full home is a
-                // question the rows answer, not a wall (SID-30).
+                // ctx built by stripContextFor: LIBRARY_APP gates Add-to-home on placement; a full
+                // home is a question the rows answer, not a wall (SID-30).
                 ActionStrip(
                     cells = actionsFor(stripContextFor(subject)),
                     itemBounds = subject.bounds,
                     fg = fg,
                     stripColor = menuColor,
-                    selectedIndex = if (keyNavActive) stripCursor else null,
-                    showIndexNumbers = hardwareKeys && showIndexBadges,
                     onAction = { runStripAction(subject, it) },
                     onDismiss = { stripFor = null },
                 )
@@ -1744,8 +1529,6 @@ fun SideHomeApp(
                     arbiterEnabled = arbiterEnabled,
                     hudVisible = hudVisible,
                     sandbox = sandbox,
-                    searchAutoFocusList = keyNavConfig.searchAutoFocusList,
-                    searchAutoFocusGallery = keyNavConfig.searchAutoFocusGallery,
                     onToggleArbiter = { arbiterEnabled = !arbiterEnabled },
                     onToggleHud = { hudVisible = !hudVisible },
                     // repo first: it owns which key is read, and flipping the mirror is what
@@ -1760,12 +1543,6 @@ fun SideHomeApp(
                         repo.resetSandbox()
                         home = defaultFavourites(apps).map { AppItem(it.key) as HomeItem }
                             .also { repo.saveHome(it) }
-                    },
-                    onToggleAutoFocusList = {
-                        keyNavConfig = keyNavConfig.copy(searchAutoFocusList = !keyNavConfig.searchAutoFocusList)
-                    },
-                    onToggleAutoFocusGallery = {
-                        keyNavConfig = keyNavConfig.copy(searchAutoFocusGallery = !keyNavConfig.searchAutoFocusGallery)
                     },
                     onOpenThemes = { debugOpen = false; themeChooserOpen = true },
                     onScrub = { debugHour = it },
@@ -1784,7 +1561,7 @@ fun SideHomeApp(
                     panelColor = menuColor,
                     onDismiss = { coach.dismiss() },
                     weatherEnabled = weatherEnabled,
-                    quickLaunch = hardwareKeys,
+                    leftPane = leftPane,
                 )
             }
 

@@ -1,39 +1,27 @@
 package fi.palonkorpi.sidehome.ui
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import fi.palonkorpi.sidehome.apps.BuiltInCategory
 import fi.palonkorpi.sidehome.apps.Category
 import fi.palonkorpi.sidehome.apps.AppEntry
-import fi.palonkorpi.sidehome.keynav.KeyIntent
 
 // ---- pure logic (Compose-free, so it can be unit-tested) ------------------------------------
 
@@ -175,9 +163,6 @@ fun GroupedBrowse(
     onOpen: (CategoryBucket) -> Unit,
     modifier: Modifier = Modifier,
     accent: Color = fg,
-    // The key-nav browse cursor (SID-96), a flat index into [buckets]; null for touch. The grid is
-    // BUBBLES_PER_ROW wide, so this and moveGridCursor share the one row width.
-    selectedIndex: Int? = null,
 ) {
     Column(
         modifier = modifier
@@ -185,19 +170,18 @@ fun GroupedBrowse(
             .padding(top = 8.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(BUBBLE_GAP),
     ) {
-        for ((rowIndex, row) in buckets.chunked(BUBBLES_PER_ROW).withIndex()) {
+        for (row in buckets.chunked(BUBBLES_PER_ROW)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(BUBBLE_GAP),
             ) {
-                for ((colIndex, bucket) in row.withIndex()) {
+                for (bucket in row) {
                     CategoryBubble(
                         bucket = bucket,
                         fg = fg,
                         onOpen = { onOpen(bucket) },
                         modifier = Modifier.weight(1f),
                         accent = accent,
-                        selected = selectedIndex == rowIndex * BUBBLES_PER_ROW + colIndex,
                     )
                 }
                 // A lone bubble on the last row keeps its column's width instead of stretching to
@@ -205,99 +189,6 @@ fun GroupedBrowse(
                 repeat(BUBBLES_PER_ROW - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
-    }
-}
-
-/**
- * The `2↑ 4← 5● 6→ 8↓` cross (SID-96): shown while the App Gallery's number-D-pad is live. It's both a
- * live affordance and the SID-82 discoverability aid — on a tile with no arrows printed on it, the
- * numbers are what tell you `2` rocks up and `5` selects. The `5●` centre wears the accent, the same
- * mark every "act on this" glyph in the launcher wears.
- */
-@Composable
-fun DpadHint(fg: Color, accent: Color, modifier: Modifier = Modifier, pressed: KeyIntent? = null) {
-    // A bare cross — no container: arrows radiate to the outside, the numbers hug the centre, and 5
-    // sits inside the ● circle. A quiet glyph overlay that reads as a hint, not a widget. The arm of
-    // the last-pressed key pulses accent, then fades back — live feedback that the key landed (SID-96).
-    val num = fg.copy(alpha = 0.5f)
-    val arrow = fg.copy(alpha = 0.8f)
-    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        HintGlyph("↑", arrow, accent, ARROW_SP, pressed == KeyIntent.NavUp)
-        HintGlyph("2", num, accent, NUM_SP, pressed == KeyIntent.NavUp)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            HintGlyph("←", arrow, accent, ARROW_SP, pressed == KeyIntent.NavLeft)
-            HintGlyph("4", num, accent, NUM_SP, pressed == KeyIntent.NavLeft)
-            HintCentre(accent = accent, pressed = pressed == KeyIntent.Select)
-            HintGlyph("6", num, accent, NUM_SP, pressed == KeyIntent.NavRight)
-            HintGlyph("→", arrow, accent, ARROW_SP, pressed == KeyIntent.NavRight)
-        }
-        HintGlyph("8", num, accent, NUM_SP, pressed == KeyIntent.NavDown)
-        HintGlyph("↓", arrow, accent, ARROW_SP, pressed == KeyIntent.NavDown)
-    }
-}
-
-private val ARROW_SP = 11.sp
-private val NUM_SP = 9.sp
-
-@Composable
-private fun HintGlyph(
-    text: String,
-    base: Color,
-    highlight: Color,
-    size: androidx.compose.ui.unit.TextUnit,
-    pressed: Boolean,
-) {
-    // Snap to the highlight the instant the key lands (no fade-in — that read as a lag), then ease back
-    // over ~250ms. A scale-pop rides along so the flash is unmistakable even when accent is low-contrast
-    // against the sky; graphicsLayer scales in place, so the cross never reflows. lineHeight is pinned
-    // to the glyph size so the stacked arms pack tight.
-    val color by animateColorAsState(
-        if (pressed) highlight else base,
-        animationSpec = if (pressed) snap() else tween(250),
-        label = "hintGlyphColor",
-    )
-    val scale by animateFloatAsState(
-        if (pressed) 1.25f else 1f,
-        animationSpec = if (pressed) snap() else tween(250),
-        label = "hintGlyphScale",
-    )
-    Text(
-        text, color = color, fontSize = size, lineHeight = size, fontWeight = FontWeight.Bold,
-        modifier = Modifier.graphicsLayer { scaleX = scale; scaleY = scale },
-    )
-}
-
-/** The centre ●: an accent ring with 5 inside; on Select it snaps to a filled accent disc (then fades),
- *  the press version of the outer arms' pulse. */
-@Composable
-private fun HintCentre(accent: Color, pressed: Boolean) {
-    val fill by animateColorAsState(
-        if (pressed) accent else Color.Transparent,
-        animationSpec = if (pressed) snap() else tween(250),
-        label = "hintCentre",
-    )
-    val scale by animateFloatAsState(
-        if (pressed) 1.25f else 1f,
-        animationSpec = if (pressed) snap() else tween(250),
-        label = "hintCentreScale",
-    )
-    Box(
-        Modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .size(16.dp)
-            .clip(CircleShape)
-            .background(fill)
-            .border(1.5.dp, accent, CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        // Flip the 5 to the backdrop colour once the disc fills, so it stays legible on the accent.
-        Text(
-            "5",
-            color = if (pressed) Color.Black.copy(alpha = 0.85f) else accent,
-            fontSize = NUM_SP,
-            lineHeight = NUM_SP,
-            fontWeight = FontWeight.Bold,
-        )
     }
 }
 

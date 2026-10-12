@@ -336,7 +336,8 @@ class HomeDragTest {
         // The reason both add paths resolve into this layer at all (SPEC §1): the 5th app is not
         // refused, it is asked where it goes. Every answer a full home can give is checked here,
         // because "Add to home" being dimmed at the cap is exactly what SID-30 removed.
-        val full = listOf(AppItem("a/A"), AppItem("b/B"), AppItem("c/C"), FolderItem("Pay", listOf("p/P")))
+        val full = listOf(AppItem("a/A"), AppItem("b/B"), AppItem("c/C"), FolderItem("Pay", listOf("p/P"))) +
+            (4 until AppRepository.MAX_HOME).map { AppItem("f$it/F") }
         assertEquals(AppRepository.MAX_HOME, full.size)
         for (t in listOf(DropTarget.Combine(0), DropTarget.Nest(3), DropTarget.Replace(1))) {
             val out = full.applyDrop(DropSource.Library("d/D"), t)

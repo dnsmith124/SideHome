@@ -13,7 +13,7 @@ import androidx.compose.ui.geometry.Rect
  * long-press on an item?"), and [PlacementState]'s own `rowBounds` ("where does a drop land?") — all
  * fed from the same `HomeRow.onGloballyPositioned` and all able to drift out of step. This is that
  * single source: the rows [report] into it, and every reader (arbiter, the theme-chooser long-press
- * gate, placement, the key-nav strip anchor) asks it instead of keeping a private copy.
+ * gate, placement, the strip anchor) asks it instead of keeping a private copy.
  *
  * Root coordinates throughout — the convention the rows and the in-hand layer already share.
  */

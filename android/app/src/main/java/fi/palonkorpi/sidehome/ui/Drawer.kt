@@ -1,6 +1,5 @@
 package fi.palonkorpi.sidehome.ui
 
-import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
@@ -29,7 +28,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,11 +52,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.PlatformImeOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -66,13 +62,6 @@ import fi.palonkorpi.sidehome.apps.Category
 import fi.palonkorpi.sidehome.apps.AppEntry
 import fi.palonkorpi.sidehome.apps.FolderItem
 import fi.palonkorpi.sidehome.gesture.GestureTuning
-import fi.palonkorpi.sidehome.ime.drawerImeOptions
-import fi.palonkorpi.sidehome.keynav.KeyIntent
-import fi.palonkorpi.sidehome.keynav.KeyNavConfig
-import fi.palonkorpi.sidehome.keynav.galleryDpadIntent
-import fi.palonkorpi.sidehome.keynav.moveCursor
-import fi.palonkorpi.sidehome.keynav.moveGridCursor
-import kotlinx.coroutines.delay
 
 private sealed interface DrawerItem
 private data class SectionHeader(val letter: String) : DrawerItem
@@ -82,23 +71,15 @@ private data class AppRow(val app: AppEntry) : DrawerItem
  * The app drawer / spotlight. Frameless: it never dims or tints the sky — it floats
  * on top while the home recedes beneath. Alphabetical with quiet section letters.
  *
- * Search is a real focusable [BasicTextField] wired to the active IME (JakeType/SideType),
- * so it types correctly across every input config — Compact QWERTY tile, classic tile, T9
- * tile, and virtual keyboard — instead of reading raw `unicodeChar` (which on the compact
- * tile only ever yields each key's left glyph). The on-brand look (search glyph + accent
- * caret) is kept via a custom `decorationBox`; the field just holds the query now.
+ * Search is a real focusable [BasicTextField] wired to the active IME,
+ * so it types correctly through the active IME instead of reading raw key codes. The on-brand
+ * look (search glyph + accent caret) is kept via a custom `decorationBox`; the field just holds
+ * the query.
  *
- * Auto-focus opens the drawer "already listening" whenever a hardware tile is present, so the
- * tile feeds the field with no tap. What shows on screen is the IME's own call: with "show
- * on-screen keyboard" off it's a candidate bar only and the list stays visible (the intended
- * tile-first config); with it on, the full soft keyboard covers the lower list (top hits + Enter
- * still work). Virtual-only devices (no tile) open unfocused ("Tap to search") so the keyboard
- * never covers the list on open. The IME action is Search, so Enter launches the top hit;
- * Backspace edits; swipe-down (from the top) or Back dismisses.
- *
- * The field also hands the IME the ambient colours and an app-name prediction hint via
- * privateImeOptions (SID-18 / SID-20) — SideType tints its tray to match the sky and biases
- * prediction toward installed app names; every other IME ignores it.
+ * With [searchFirst] the drawer opens "already listening": the field takes focus and the keyboard
+ * rises, so the top hits are a few letters away. Otherwise it opens unfocused ("Tap to search") so
+ * the keyboard never covers the list on open. The IME action is Search, so Enter launches the top
+ * hit; Backspace edits; swipe-down (from the top) or Back dismisses.
  *
  * Holding an app raises the §1 menu ([onAppHold]); moving after that hold lifts the app out of the
  * library and streams it to the host ([onAppPickup] / [onAppDrag] / [onAppDrop]) — the drag-up that
@@ -123,7 +104,6 @@ fun Drawer(
     favouriteKeys: Set<String>,
     fg: Color,
     accent: Color,
-    backdrop: Color? = null,
     visible: Boolean,
     atRest: Boolean,
     tuning: GestureTuning,
@@ -135,23 +115,9 @@ fun Drawer(
     openCategory: Category? = null,
     onOpenCategoryChange: (Category?) -> Unit = {},
     onLaunch: (AppEntry) -> Unit,
-    // Key-nav (SID-84): the host calls the handler this registers while the drawer is the active
-    // surface, to move a result cursor and launch the selected hit. Enter is caught at the Activity
-    // before the predictive IME (the double-Enter fix, SID-91); keyNavActive gates the highlight so
-    // touch users never see a cursor.
-    onRegisterKeyHandler: ((KeyIntent) -> Unit) -> Unit = {},
-    keyNavActive: Boolean = false,
-    // Whether the key-nav feature is on (SID-96/SID-97). Gates the App Gallery's browse cursor and
-    // its on-screen D-pad hint: the gallery arrives in D-pad mode with the first bubble already
-    // marked, so — unlike the list's rocking cursor — its highlight shows whenever key-nav is enabled,
-    // not only after a rock. [config] holds the per-view taste defaults (List search-first / Gallery
-    // browse-first).
-    keyNavEnabled: Boolean = false,
-    config: KeyNavConfig = KeyNavConfig.DEFAULT,
-    // SID-182: the list-first pref, inverted — false opens the A–Z list quiet (no focus, no IME,
-    // typing does nothing) with the search pill as a key-nav target. True is the shipped default
-    // (search-first, SID-21).
-    searchFirst: Boolean = true,
+    // SID-182: the list-first pref, inverted — false opens the A–Z list quiet (no focus, no IME);
+    // true opens it with the search field focused and the keyboard up.
+    searchFirst: Boolean = false,
     onAppHold: (AppEntry, Rect) -> Unit,
     onAppPickup: (AppEntry, Rect) -> Unit,
     onAppDrag: (Offset) -> Unit,
@@ -198,42 +164,26 @@ fun Drawer(
     val badgedPackages = rememberBadgedPackages()
 
     // Search always collapses to the flat ranked list, whatever the browse mode (SPEC §2b). Computed
-    // up here (not just before the list) because the auto-focus decision and the key handler below both
-    // turn on which surface — the A–Z list or the grouped gallery — is showing.
+    // up here (not just before the list) because the auto-focus decision turns on which surface — the
+    // A–Z list or the grouped gallery — is showing.
     val searching = query.trim().isNotEmpty()
     val grouped = mode != BrowseMode.LIST && !searching
 
-    // Auto-focus is **per view** now (SID-96/SID-97): the A–Z List is search-first so its field takes
-    // focus when a hardware tile is present and feeds it with no tap; the App Gallery is browse-y, so
-    // its field stays unfocused and the number keys drive the bubble D-pad instead. Virtual-only
-    // devices never auto-focus (the keyboard would cover the list on open). This is a typing policy,
-    // not a nav one, so it holds whether or not key-nav is enabled.
-    val configuration = LocalConfiguration.current
-    val hardwareKeys = configuration.keyboard == Configuration.KEYBOARD_QWERTY &&
-        configuration.hardKeyboardHidden == Configuration.HARDKEYBOARDHIDDEN_NO
-    // SID-182: the list-first pref gates search-first entirely — with it off the list opens quiet
-    // (no focus, no IME) and *typing does nothing*: an unfocused field receives no letters, and the
-    // ladder keeps them PassThrough, so they die in the view hierarchy rather than quick-launching.
-    // Search is then a place you walk to — the pill is a key-nav target (below) — or tap.
-    val autoFocus = hardwareKeys && searchFirst &&
-        if (grouped) config.searchAutoFocusGallery else config.searchAutoFocusList
-    // The App Gallery's browse affordances — the marked bubble/member and the D-pad hint — need both a
-    // hardware tile to drive them and key-nav on; a virtual-only device shows neither (SID-96).
-    val galleryKeyNav = keyNavEnabled && hardwareKeys
+    // Auto-focus is a typing policy (SID-182): search-first opens the A–Z List already listening;
+    // the App Gallery is browse-y, so its field stays unfocused either way.
+    val autoFocus = searchFirst && !grouped
 
-    // Focus — and therefore SideType's candidate bar — only once the pane is actually open, not the
-    // instant a drag reveals the warmed drawer. Booting the IME mid-gesture janked the open on the
-    // GE8300, and an aborted open (drag up a little, let it fall back) left the bar on screen with no
-    // field behind it. Keyed on [visible] (drawer-full) and [autoFocus]: a partial open never focuses;
-    // a real close clears it; and flipping to the Gallery mid-open releases focus so the number keys
-    // rock the grid instead of typing. "Already listening when open" (SID-21) still holds for the List.
+    // Focus — and therefore the keyboard — only once the pane is actually open, not the instant a
+    // drag reveals the warmed drawer: an aborted open (drag up a little, let it fall back) must not
+    // leave a keyboard on screen with no field behind it. Keyed on [visible] (drawer-full) and
+    // [autoFocus]: a partial open never focuses; a real close clears it; and flipping to the Gallery
+    // mid-open releases focus.
     LaunchedEffect(visible, autoFocus) {
         if (visible && autoFocus) {
             runCatching { focus.requestFocus() }
         } else {
-            // clearFocus tears down the field's InputConnection, but on the SP-01 the hardware-keyboard
-            // candidate bar can linger a beat after — hanging on the home once the drawer closes. hide()
-            // dismisses it now instead of temporarily.
+            // clearFocus tears down the field's InputConnection; hide() dismisses the keyboard now
+            // rather than leaving it to linger over the home once the drawer closes.
             focusManager.clearFocus(force = true)
             keyboard?.hide()
         }
@@ -265,121 +215,6 @@ fun Drawer(
     // into Other under MIN_BUCKET_SIZE), which resolves to null and drops back to the bubbles.
     val openBucket = if (!grouped) null else buckets.firstOrNull { it.category.id == openCategory?.id }
 
-    // ---- key-nav (SID-84 / SID-96) ----
-    // Two cursors, one per browse surface; the handler routes to whichever is showing. The flat A–Z /
-    // search LIST drives a linear cursor over [ranked]; the grouped App GALLERY drives a 2-D cursor
-    // over the [buckets] grid. Select launches the ranked hit / opens the bucket, caught at the Activity
-    // before the IME so a single Enter works (SID-91). Each resets to its first item on a fresh summon.
-    val currentLaunch by rememberUpdatedState(onLaunch)
-    val currentHold by rememberUpdatedState(onAppHold)
-    var cursor by remember { mutableStateOf(0) }
-    // SID-182: in list-first mode the search pill is a key-nav target one step above the top row —
-    // walk up from row 0 to select it, Select on it summons search (focus + IME). Never live in
-    // search-first mode, where the field is already focused.
-    var pillSelected by remember { mutableStateOf(false) }
-    var bucketCursor by remember { mutableStateOf(0) }
-    // A third cursor for a drilled-in bucket's members (SID-96) — a bucket is a folder-like layer, so
-    // once open the keys walk its apps, not the bubble grid behind it.
-    var memberCursor by remember { mutableStateOf(0) }
-    // The selected row's on-screen rect, so a key-hold can anchor the strip beside it the way a touch
-    // hold does. Only the selected row reports up (below); the top hit by default.
-    var selectedBounds by remember { mutableStateOf(Rect.Zero) }
-    // The arm the D-pad hint flashes: the last direction/select pressed in the gallery, cleared a beat
-    // later so it reads as a momentary pulse rather than a stuck state. [pressSeq] re-arms the timer on
-    // every press — including auto-repeats of the same key — so a held direction stays lit and only
-    // fades once the presses stop.
-    var pressedArm by remember { mutableStateOf<KeyIntent?>(null) }
-    var pressSeq by remember { mutableStateOf(0) }
-    LaunchedEffect(ranked) { cursor = 0 }
-    LaunchedEffect(atRest) { if (atRest) { bucketCursor = 0; pillSelected = false } }
-    // Typing (having reached the field) is its own selection — the pill's job is done.
-    LaunchedEffect(searching) { if (searching) pillSelected = false }
-    // Walking onto the pill brings the top of the list with it, so the target is on screen.
-    LaunchedEffect(pillSelected) {
-        if (pillSelected) runCatching { listState.animateScrollToItem(0) }
-    }
-    // Land on the first member each time a bucket opens (or changes under an open popover).
-    LaunchedEffect(openBucket) { memberCursor = 0 }
-    LaunchedEffect(pressSeq) { if (pressedArm != null) { delay(160); pressedArm = null } }
-    val selectedKey = ranked.getOrNull(cursor.coerceIn(0, (ranked.size - 1).coerceAtLeast(0)))?.key
-    val keyHandler: (KeyIntent) -> Unit = { intent ->
-        if (grouped) {
-            // App Gallery browse-mode (SID-96): the number grid and the Sundial ring rock a 2-D cursor
-            // over the bubbles; Select opens the bucket under it. A number arrives as a QuickIndex and
-            // is translated through the gallery cross (2↑ 8↓ 4← 6→ 5●); the ring's Nav*/Select arrive as
-            // themselves. ItemMenu is ignored on purpose: the number keys are directions here, and a
-            // held one would otherwise fire the launch-key's hold-menu instead of just stepping — a
-            // bucket has no strip to raise anyway, opening it IS the action.
-            val dir = (intent as? KeyIntent.QuickIndex)?.let { galleryDpadIntent(it.n) } ?: intent
-            // Flash the pressed arm on the hint (a direction or select; anything else is inert here).
-            when (dir) {
-                KeyIntent.NavUp, KeyIntent.NavDown, KeyIntent.NavLeft, KeyIntent.NavRight,
-                KeyIntent.Select -> { pressedArm = dir; pressSeq++ }
-                else -> {}
-            }
-            val bucket = openBucket
-            if (bucket == null) {
-                val n = buckets.size
-                val cur = bucketCursor.coerceIn(0, (n - 1).coerceAtLeast(0))
-                when (dir) {
-                    KeyIntent.NavUp -> bucketCursor = moveGridCursor(cur, -1, 0, n, BUBBLES_PER_ROW)
-                    KeyIntent.NavDown -> bucketCursor = moveGridCursor(cur, 1, 0, n, BUBBLES_PER_ROW)
-                    KeyIntent.NavLeft -> bucketCursor = moveGridCursor(cur, 0, -1, n, BUBBLES_PER_ROW)
-                    KeyIntent.NavRight -> bucketCursor = moveGridCursor(cur, 0, 1, n, BUBBLES_PER_ROW)
-                    KeyIntent.Select -> buckets.getOrNull(cur)?.let { onOpenCategoryChange(it.category) }
-                    else -> {}
-                }
-            } else {
-                // Inside a drilled-in bucket (SID-96): walk its members like a folder — linear, both
-                // axes stepping one (the popover is a small grid; home folders navigate the same way).
-                // Select launches and drops the whole library; Back (a host global) steps back out to
-                // the bubbles first.
-                val members = bucket.apps
-                val n = members.size
-                val cur = memberCursor.coerceIn(0, (n - 1).coerceAtLeast(0))
-                when (dir) {
-                    KeyIntent.NavUp, KeyIntent.NavLeft -> memberCursor = moveCursor(cur, -1, n)
-                    KeyIntent.NavDown, KeyIntent.NavRight -> memberCursor = moveCursor(cur, 1, n)
-                    KeyIntent.Select -> members.getOrNull(cur)?.let { currentLaunch(it); onOpenCategoryChange(null) }
-                    else -> {}
-                }
-            }
-        } else {
-            val n = ranked.size
-            val cur = cursor.coerceIn(0, (n - 1).coerceAtLeast(0))
-            when (intent) {
-                KeyIntent.NavDown ->
-                    if (pillSelected) pillSelected = false   // step off the pill, back to row 0
-                    else cursor = moveCursor(cur, 1, n)
-                KeyIntent.NavUp ->
-                    // List-first (SID-182): one step above the top row sits the search pill.
-                    if (!autoFocus && !pillSelected && cur == 0) pillSelected = true
-                    else if (!pillSelected) cursor = moveCursor(cur, -1, n)
-                KeyIntent.Select ->
-                    if (pillSelected) {
-                        // Selecting the pill is the deliberate act that summons search — the one
-                        // way into it by key when the list opens quiet.
-                        pillSelected = false
-                        runCatching { focus.requestFocus() }
-                    } else {
-                        ranked.getOrNull(cur)?.let(currentLaunch)
-                    }
-                // Hold the launch key (SID-87/SID-98): raise the library strip for the selected hit —
-                // the top one on a typing tile, where the cursor never moves (hold-Enter = manage top).
-                is KeyIntent.ItemMenu ->
-                    if (!pillSelected) ranked.getOrNull(cur)?.let { currentHold(it, selectedBounds) }
-                else -> {}
-            }
-        }
-    }
-    SideEffect { onRegisterKeyHandler(keyHandler) }
-    // Keep the selected row on screen as the cursor walks the list (flat while searching).
-    LaunchedEffect(selectedKey, items) {
-        val key = selectedKey ?: return@LaunchedEffect
-        val idx = items.indexOfFirst { it is AppRow && it.app.key == key }
-        if (idx >= 0) runCatching { listState.animateScrollToItem(idx) }
-    }
-
     // Leaving grouped mode — the toggle flipped to List, or a keystroke turned this into a search —
     // forgets the open bucket too, so coming back lands on the bubbles rather than re-opening what
     // you left. The gate above is what makes it disappear; this is what stops it returning.
@@ -394,15 +229,6 @@ fun Drawer(
     // otherwise capture the mode the drawer opened in and never see a flip.
     val groupedNow by rememberUpdatedState(grouped)
 
-    // Snapshot at open, keyed on [visible]: the IME only reads privateImeOptions when it starts on the
-    // field, so the sky's drift while searching can't reach it anyway — and re-deriving it per frame
-    // would hand BasicTextField a new options object on every ambient tick. The drawer is now warmed
-    // once rather than remounted per open, so this keys on the open transition to re-snapshot the
-    // current ambient each summon. (Live drift = SID-18 v2, needs an InputConnection.)
-    val imeOptions = remember(visible) {
-        PlatformImeOptions(drawerImeOptions(fg = fg, accent = accent, backdrop = backdrop, separator = hint))
-    }
-
     Box(modifier = modifier) {
         // An open bucket replaces the drawer's own content rather than floating over it: DECISIONS
         // says stacked overlays don't bleed — you only ever read one surface — and here the surface
@@ -416,11 +242,6 @@ fun Drawer(
                 tuning = tuning,
                 fg = fg,
                 accent = accent,
-                // The member the key cursor is on (SID-96), first-from-entry like the bubble grid;
-                // null for touch / no tile, so a finger-only bucket shows no highlight.
-                selectedIndex = if (galleryKeyNav) {
-                    memberCursor.coerceIn(0, (openBucket.apps.size - 1).coerceAtLeast(0))
-                } else null,
                 onLaunch = onLaunch,
                 onAppHold = onAppHold,
                 onDismiss = { onOpenCategoryChange(null) },
@@ -429,9 +250,9 @@ fun Drawer(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                // Sit the whole drawer above the SideType IME: the search field auto-focuses so the
-                // keyboard is always up here, and without this the last list rows / bottom bubble row
-                // hid behind it. imePadding collapses to nothing when the IME is down.
+                // Sit the whole drawer above the keyboard: with search-first the field auto-focuses,
+                // and without this the last list rows / bottom bubble row hid behind it. imePadding
+                // collapses to nothing when the IME is down.
                 .imePadding()
                 .nestedScroll(pullToDismiss)
                 .padding(top = 36.dp)
@@ -469,7 +290,7 @@ fun Drawer(
 
             // "search" line: a real IME-backed field, styled by decorationBox to look exactly
             // like the old static query line (search glyph, live text, accent caret). The field
-            // holds the query; the active IME disambiguates the compact tile's key pairs. Live
+            // holds the query. Live
             // narrowing follows composing text — onValueChange fires on composition, not just on
             // commit — so the list filters as you type, before you accept a candidate.
             val placeholder = if (autoFocus) "Type to search" else "Tap to search"
@@ -483,10 +304,7 @@ fun Drawer(
                 singleLine = true,
                 textStyle = TextStyle(color = fg, fontSize = 18.sp, fontFamily = Inter),
                 cursorBrush = SolidColor(accent),
-                keyboardOptions = KeyboardOptions(
-                    imeAction = ImeAction.Search,
-                    platformImeOptions = imeOptions,
-                ),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = {
                     if (query.isNotBlank()) ranked.firstOrNull()?.let(onLaunch)
                 }),
@@ -497,9 +315,7 @@ fun Drawer(
                     // with the mode toggle beside it (the same translucent-fg cushion the toggle uses,
                     // per DECISIONS) rather than a bare underlined field next to a boxed control.
                     .clip(RoundedCornerShape(12.dp))
-                    // The pill brightens to the rows' own selection fill while it is the key-nav
-                    // target (SID-182) — same vocabulary, one extra stop on the walk.
-                    .background(fg.copy(alpha = if (keyNavActive && pillSelected) 0.12f else 0.07f))
+                    .background(fg.copy(alpha = 0.07f))
                     .padding(vertical = 10.dp, horizontal = 12.dp),
                 decorationBox = { innerTextField ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -542,11 +358,6 @@ fun Drawer(
                     onOpen = { onOpenCategoryChange(it.category) },
                     modifier = Modifier.fillMaxSize(),
                     accent = accent,
-                    // First bubble marked from entry (SID-96): the gallery arrives in D-pad mode, so the
-                    // highlight shows whenever key-nav is on — no rock needed to reveal it.
-                    selectedIndex = if (galleryKeyNav) {
-                        bucketCursor.coerceIn(0, (buckets.size - 1).coerceAtLeast(0))
-                    } else null,
                 )
             } else {
             LazyColumn(
@@ -591,10 +402,6 @@ fun Drawer(
                             accent = accent,
                             badged = isBadged(it.app, badgedPackages),
                             isFavourite = favouriteKeys.contains(it.app.key),
-                            // The pill and a row are never both marked: while the pill is the
-                            // target (SID-182), the cursor's row hands its highlight up.
-                            selected = keyNavActive && !pillSelected && it.app.key == selectedKey,
-                            onBounds = { b -> if (it.app.key == selectedKey) selectedBounds = b },
                             tuning = tuning,
                             onLaunch = { onLaunch(it.app) },
                             onHold = { bounds -> onAppHold(it.app, bounds) },
@@ -608,20 +415,6 @@ fun Drawer(
             }
             }
         }
-        }
-        // One shared D-pad hint for the whole gallery (SID-96), pinned to the screen's bottom-end so it
-        // holds the exact same spot whether you're on the bubble grid or drilled into a bucket — both
-        // surfaces live in this Box, so aligning here (not inside the padded column) is what stops it
-        // jumping between the two.
-        if (grouped && galleryKeyNav) {
-            DpadHint(
-                fg = fg,
-                accent = accent,
-                pressed = pressedArm,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(bottom = 12.dp, end = 10.dp),
-            )
         }
     }
 }
@@ -652,7 +445,6 @@ private fun CategoryPopover(
     onLaunch: (AppEntry) -> Unit,
     onAppHold: (AppEntry, Rect) -> Unit,
     onDismiss: () -> Unit,
-    selectedIndex: Int? = null,
 ) {
     // Rebuilt only when the bucket changes. FolderItem is a data class, so even an identical rebuild
     // compares equal and doesn't re-key the popover's own remembers.
@@ -670,7 +462,6 @@ private fun CategoryPopover(
         tuning = tuning,
         fg = fg,
         accent = accent,
-        selectedIndex = selectedIndex,
         // Only ever the trailing carry chip's background, and a bucket has no reorder, so it is never
         // drawn — a sane value rather than a placeholder, legible if that ever stops being true.
         stripColor = fg.copy(alpha = 0.10f),
@@ -699,8 +490,6 @@ private fun DrawerAppRow(
     onPickup: (Rect) -> Unit,
     onDrag: (Offset) -> Unit,
     onDrop: () -> Unit,
-    selected: Boolean = false,
-    onBounds: (Rect) -> Unit = {},
 ) {
     // The strip anchors its Y beside the row that raised it, and a carry lifted off this row is
     // seeded from it, so the row reports where it sits. Root coords, because both are siblings of
@@ -710,9 +499,7 @@ private fun DrawerAppRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            // The key-nav result cursor (SID-84): a quiet fg-tinted fill, only ever set by key.
-            .then(if (selected) Modifier.background(fg.copy(alpha = 0.12f)) else Modifier)
-            .onGloballyPositioned { bounds = it.boundsInRoot(); onBounds(bounds) }
+            .onGloballyPositioned { bounds = it.boundsInRoot() }
             .itemPress(
                 tuning = tuning,
                 onTap = onLaunch,

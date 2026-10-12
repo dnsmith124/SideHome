@@ -3,7 +3,7 @@ package fi.palonkorpi.sidehome.gesture
 import kotlin.math.abs
 
 /**
- * Pure gesture-routing logic for the SP-01 home — the "prototype the routing first" deliverable
+ * Pure gesture-routing logic for the home — the "prototype the routing first" deliverable
  * (SID-24, SPEC §7). Everything here is unit-agnostic and Compose-free so the *feel* decisions
  * (axis-lock bias, settle thresholds, edge bands, the hold-vs-slop race) are all captured as
  * plain data + functions that can be reasoned about and tested without a device. The Compose
@@ -16,10 +16,8 @@ import kotlin.math.abs
 const val DEFAULT_SETTLE_FRACTION = 0.27f
 
 /**
- * The one hold-timeout (ms) both input paths read (SID-111): touch, via [GestureTuning.holdTimeoutMs]
- * and the itemPress race; and hardware keys, via the key-nav controller's live copy of it. Kept in
- * one place so "how long is a hold" can never be 450 for a finger and 400 for a key again — the drift
- * SID-111 removed. A compile-time const so the key layer's default can reference it across packages.
+ * The one hold-timeout (ms) the touch path reads (SID-111), via [GestureTuning.holdTimeoutMs] and
+ * the itemPress race. Kept in one place so "how long is a hold" has exactly one answer.
  */
 const val DEFAULT_HOLD_TIMEOUT_MS: Long = 450L
 

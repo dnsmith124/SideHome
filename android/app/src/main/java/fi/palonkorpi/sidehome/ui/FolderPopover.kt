@@ -17,15 +17,12 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -108,8 +105,6 @@ fun FolderPopover(
     modifier: Modifier = Modifier,
     onMemberPickup: () -> Unit = {},
     realIcons: Boolean = false,
-    selectedIndex: Int? = null,
-    showIndexNumbers: Boolean = false,
     onReorder: ((from: Int, toGap: Int) -> Unit)? = null,
 ) {
     val members = folder.appKeys.mapNotNull { appsByKey[it] }
@@ -128,22 +123,6 @@ fun FolderPopover(
 
     // Hoisted so the overflow chevrons can read whether there is more folder above/below.
     val scroll = rememberScrollState()
-
-    // Key-nav auto-scroll: bring the selected member into view on each cursor move so driving a long
-    // folder by key (e.g. the Sundial ring) doesn't run the cursor off the fold. At the ends, snap
-    // fully to the edge rather than just far enough to reveal the row — selecting the first member
-    // scrolls the header back in (top), the last member scrolls to the bottom — so the overflow
-    // chevron actually clears. bringIntoView alone leaves the header/last row flush at the edge with
-    // content still beyond it, and the arrow lingers until you finger-scroll the rest of the way.
-    val bringSelected = remember { BringIntoViewRequester() }
-    LaunchedEffect(selectedIndex) {
-        when {
-            selectedIndex == null -> {}
-            selectedIndex <= 0 -> scroll.animateScrollTo(0)
-            selectedIndex >= members.lastIndex -> scroll.animateScrollTo(scroll.maxValue)
-            else -> runCatching { bringSelected.bringIntoView() }
-        }
-    }
 
     Box(
         modifier = modifier
@@ -206,9 +185,6 @@ fun FolderPopover(
                             tuning = tuning,
                             enter = rememberStaggeredEnter(index = i + 1),
                             badge = badgeTint(isBadged(app, badgedPackages), accent),
-                            selected = selectedIndex == i,
-                            bringIntoView = if (selectedIndex == i) bringSelected else null,
-                            indexBadge = if (showIndexNumbers && i < 9) i + 1 else null,
                             draggable = reorderable,
                             dimmed = carried?.from == i,
                             onBounds = { b -> memberRects[i] = b },
@@ -341,9 +317,6 @@ private fun MemberRow(
     badge: Color?,
     onTap: () -> Unit,
     onHold: (Rect) -> Unit,
-    selected: Boolean = false,
-    bringIntoView: BringIntoViewRequester? = null,
-    indexBadge: Int? = null,
     draggable: Boolean = false,
     dimmed: Boolean = false,
     onBounds: (Rect) -> Unit = {},
@@ -361,10 +334,6 @@ private fun MemberRow(
             // left in the flow is the dimmed hole it will come back to (SID-94).
             .then(if (dimmed) Modifier.alpha(0.3f) else Modifier)
             .clip(RoundedCornerShape(10.dp))
-            // The key-nav cursor (SID-84): a quiet fg-tinted fill, only ever set by key.
-            .then(if (selected) Modifier.background(fg.copy(alpha = 0.12f)) else Modifier)
-            // The selected row carries the requester so key-nav auto-scrolls the folder to it.
-            .then(if (bringIntoView != null) Modifier.bringIntoViewRequester(bringIntoView) else Modifier)
             .onGloballyPositioned {
                 // onGloballyPositioned re-fires on every layout pass; only report real movement.
                 val b = it.boundsInRoot()
@@ -388,10 +357,6 @@ private fun MemberRow(
             .padding(horizontal = 6.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Faint direct-index number (SID-82), so the matching keypad key is discoverable.
-        if (indexBadge != null) {
-            Text("$indexBadge", color = fg.copy(alpha = 0.38f), fontSize = 13.sp, modifier = Modifier.width(16.dp))
-        }
         if (realIcon) {
             // The bucket's real icon, so drilling in matches the bubble that peeked it. The badge is
             // a Compose overlay for the same reason it is on a LineIcon — a sibling dot that fades and

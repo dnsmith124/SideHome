@@ -8,6 +8,9 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import fi.palonkorpi.sidehome.ambient.DEFAULT_CUSTOM_DRIFT
+import fi.palonkorpi.sidehome.pane.LeftPane
+import fi.palonkorpi.sidehome.pane.leftPaneFromPref
+import fi.palonkorpi.sidehome.pane.toPref
 import fi.palonkorpi.sidehome.ambient.DEFAULT_CUSTOM_HUE_DEG
 import fi.palonkorpi.sidehome.ambient.DEFAULT_CUSTOM_SAT
 import fi.palonkorpi.sidehome.ambient.Theme
@@ -117,38 +120,20 @@ class SettingsStore(context: Context) {
         set(value) = prefs.edit().putString(KEY_TEMP_UNIT, value.toPref()).apply()
 
     /**
-     * Hardware key-navigation on/off (SID-97). The **one** shipped key-nav setting: everything else
-     * (per-view search auto-focus, the number→D-pad map) is a strong default, not a knob. Defaults to
-     * **on** — the SP-01 is a hardware-keypad phone, so it navigates by key out of the box.
-     *
-     * OFF must be a true no-op, not a swallow: `MainActivity.dispatchKeyEvent` passes every key through
-     * untouched (`decideKeyDispatch` returns PassThrough when this is false), so the launcher never
-     * fights an external Key Mapper app the user has bound the tile to.
+     * What the left-hand page holds (Pixel Edition): the Now page, the Notes page, or nothing —
+     * in which case Home is the left end, as upstream shipped it. Defaults to Now.
      */
-    var keyNavEnabled: Boolean
-        get() = prefs.getBoolean(KEY_KEYNAV_ENABLED, true)
-        set(value) = prefs.edit().putBoolean(KEY_KEYNAV_ENABLED, value).apply()
+    var leftPane: LeftPane
+        get() = leftPaneFromPref(prefs.getString(KEY_LEFT_PANE, null))
+        set(value) = prefs.edit().putString(KEY_LEFT_PANE, value.toPref()).apply()
 
     /**
-     * The faint 1–9 quick-launch numbers on home items, folder members and the strip (SID-183).
-     * On by default when a hardware tile is present — they are the visible half of the number-key
-     * quick launch. Off keeps quick-launch itself working (the keys don't need the labels; the
-     * labels exist for learning them) and drops only the badges, for people the numbers read as
-     * clutter or as a mystery count.
-     */
-    var showIndexBadges: Boolean
-        get() = prefs.getBoolean(KEY_SHOW_INDEX_BADGES, true)
-        set(value) = prefs.edit().putBoolean(KEY_SHOW_INDEX_BADGES, value).apply()
-
-    /**
-     * The library opens as a quiet list instead of search-first (SID-182). Off by default —
-     * search-first (SID-21) stays the shipped behaviour; this is the opt-out for people who
-     * prefer to browse. In list-first mode typing does nothing (no field is focused; letters
-     * die in the view hierarchy) and search is reached by tapping the pill or walking key-nav
-     * onto it.
+     * The library opens as a quiet list instead of search-first (SID-182). On by default: a touch
+     * phone's keyboard would otherwise rise over the list on every open. Off makes the library
+     * open with the search field focused and the keyboard up, ready to type.
      */
     var drawerListFirst: Boolean
-        get() = prefs.getBoolean(KEY_DRAWER_LIST_FIRST, false)
+        get() = prefs.getBoolean(KEY_DRAWER_LIST_FIRST, true)
         set(value) = prefs.edit().putBoolean(KEY_DRAWER_LIST_FIRST, value).apply()
 
     /**
@@ -277,10 +262,9 @@ class SettingsStore(context: Context) {
         const val KEY_COACH_SEEN = "coach_seen"
         const val KEY_WEATHER_PLACE = "weather_place"
         const val KEY_TEMP_UNIT = "temp_unit"
-        const val KEY_KEYNAV_ENABLED = "keynav_enabled"
-        const val KEY_SHOW_INDEX_BADGES = "show_index_badges"
         const val KEY_DRAWER_LIST_FIRST = "drawer_list_first"
         const val KEY_WEATHER_ENABLED = "weather_enabled"
+        const val KEY_LEFT_PANE = "left_pane"
         const val KEY_WALLPAPER_HOME = "wallpaper_home"
         const val KEY_WALLPAPER_LOCK = "wallpaper_lock"
         const val KEY_WALLPAPER_CONSENT = "wallpaper_consent"
@@ -440,22 +424,6 @@ fun SettingsStore.tempUnitAsState(): State<TempUnit> {
 }
 
 /**
- * Observe [SettingsStore.keyNavEnabled] as Compose [State] (SID-97). Flipping it in the settings
- * screen reaches the live home the same way theme does — the shared-prefs listener — so key-nav turns
- * on or off without a relaunch.
- */
-@Composable
-fun SettingsStore.keyNavEnabledAsState(): State<Boolean> {
-    val state = remember(this) { mutableStateOf(keyNavEnabled) }
-    DisposableEffect(this) {
-        state.value = keyNavEnabled
-        val handle = addChangeListener { state.value = keyNavEnabled }
-        onDispose { handle.close() }
-    }
-    return state
-}
-
-/**
  * Observe [SettingsStore.wallpaperSyncHome] as Compose [State] (SID-180). The live home reacts —
  * flipping it on in settings (or in the consent modal) triggers a sync on the next mood evaluation.
  */
@@ -482,19 +450,7 @@ fun SettingsStore.wallpaperSyncLockAsState(): State<Boolean> {
     return state
 }
 
-/** Observe [SettingsStore.showIndexBadges] as Compose [State] (SID-183), like [keyNavEnabledAsState]. */
-@Composable
-fun SettingsStore.showIndexBadgesAsState(): State<Boolean> {
-    val state = remember(this) { mutableStateOf(showIndexBadges) }
-    DisposableEffect(this) {
-        state.value = showIndexBadges
-        val handle = addChangeListener { state.value = showIndexBadges }
-        onDispose { handle.close() }
-    }
-    return state
-}
-
-/** Observe [SettingsStore.drawerListFirst] as Compose [State] (SID-182), like [keyNavEnabledAsState]. */
+/** Observe [SettingsStore.drawerListFirst] as Compose [State] (SID-182), like [themeAsState]. */
 @Composable
 fun SettingsStore.drawerListFirstAsState(): State<Boolean> {
     val state = remember(this) { mutableStateOf(drawerListFirst) }
@@ -516,6 +472,18 @@ fun SettingsStore.weatherEnabledAsState(): State<Boolean> {
     DisposableEffect(this) {
         state.value = weatherEnabled
         val handle = addChangeListener { state.value = weatherEnabled }
+        onDispose { handle.close() }
+    }
+    return state
+}
+
+/** Observe [SettingsStore.leftPane] as Compose [State], like [weatherEnabledAsState]. */
+@Composable
+fun SettingsStore.leftPaneAsState(): State<LeftPane> {
+    val state = remember(this) { mutableStateOf(leftPane) }
+    DisposableEffect(this) {
+        state.value = leftPane
+        val handle = addChangeListener { state.value = leftPane }
         onDispose { handle.close() }
     }
     return state

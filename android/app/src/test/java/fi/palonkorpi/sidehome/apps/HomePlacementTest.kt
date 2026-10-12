@@ -25,6 +25,10 @@ import org.junit.Test
  */
 class HomePlacementTest {
 
+    /** Pads a hand-built home out to the cap, so "full" means full whatever MAX_HOME is. */
+    private fun filler(from: Int): List<HomeItem> = (from until AppRepository.MAX_HOME).map { AppItem("f$it/F") }
+
+
     private val a = AppItem("a/A")
     private val b = AppItem("b/B")
     private val c = AppItem("c/C")
@@ -231,10 +235,10 @@ class HomePlacementTest {
     @Test fun `the last member out takes the folder's own slot as the folder auto-deletes`() {
         // Ungrouping costs a slot and auto-delete refunds one, so this nets out even on a full home
         // — which is why canPopFromFolder says yes to a one-app folder at the cap.
-        val full = listOf(a, FolderItem("Pay", listOf("p/P")), b, c)
+        val full = listOf(a, FolderItem("Pay", listOf("p/P")), b, c) + filler(4)
         assertEquals(AppRepository.MAX_HOME, full.size)
         val out = full.popFromFolder(folderIndex = 1, appKey = "p/P")
-        assertEquals(listOf(a, AppItem("p/P"), b, c), out)
+        assertEquals(listOf(a, AppItem("p/P"), b, c) + filler(4), out)
         assertEquals(AppRepository.MAX_HOME, out.size)
     }
 
@@ -242,7 +246,7 @@ class HomePlacementTest {
         // Ungrouping is the one move that *costs* a slot, so it is the one move a full home can
         // refuse. The strip never dims Move-to-home over it: the caller routes a full home through
         // the in-hand placement flow instead, where replace/nest/combine all make room.
-        val full = listOf(a, pay, b, c)
+        val full = listOf(a, pay, b, c) + filler(4)
         assertEquals(AppRepository.MAX_HOME, full.size)
         assertSame(full, full.popFromFolder(folderIndex = 1, appKey = "p/P"))
         assertFalse(full.canPopFromFolder(1))
@@ -293,7 +297,7 @@ class HomePlacementTest {
     // ---- the property the whole model rests on -------------------------------------------------
 
     @Test fun `every grouping drop on a full home frees a slot`() {
-        val full = listOf(a, b, c, pay)
+        val full = listOf(a, b, c, pay) + filler(4)
         assertEquals(AppRepository.MAX_HOME, full.size)
         for (out in listOf(
             full.combineIntoFolder(from = 0, onto = 1),   // app onto app
